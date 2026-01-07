@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Client Dashboard | ProWriter Solutions</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body {
+      font-family: "Segoe UI", sans-serif;
+      background: #f4f6f9;
+      margin: 0;
+      padding: 0;
+    }
+
+    main.dashboard {
+      max-width: 1000px;
+      margin: 40px auto;
+      background: #fff;
+      border-radius: 10px;
+      padding: 25px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+
+    h1 {
+      text-align: center;
+      color: #333;
+    }
+
+    #logoutBtn {
+      background: #dc3545;
+      float: right;
+      border: none;
+      color: white;
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+      margin-top: -10px;
+    }
+    #logoutBtn:hover { background: #b52d3a; }
+
+    form {
+      margin-top: 30px;
+      background: #f9fafb;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 0 5px rgba(0,0,0,0.05);
+    }
+
+    input, textarea, button {
+      display: block;
+      width: 100%;
+      margin: 10px 0;
+      padding: 10px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      font-size: 15px;
+    }
+
+    button {
+      background: #007bff;
+      color: white;
+      font-weight: bold;
+      border: none;
+      cursor: pointer;
+    }
+
+    button:hover { background: #0056b3; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 25px;
+      background: #fff;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    th, td {
+      border: 1px solid #ddd;
+      padding: 10px;
+      text-align: left;
+    }
+
+    th {
+      background: #007bff;
+      color: white;
+    }
+
+    tr:nth-child(even) { background: #f9f9f9; }
+
+    .status {
+      padding: 3px 8px;
+      border-radius: 5px;
+      font-weight: bold;
+      color: white;
+    }
+
+    .pending { background: orange; }
+    .inprogress { background: #007bff; }
+    .completed { background: green; }
+
+    td a {
+      color: #007bff;
+      text-decoration: none;
+      font-weight: bold;
+    }
+
+    td a:hover { text-decoration: underline; }
+
+    #welcome {
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+
+    .noOrders {
+      text-align: center;
+      color: gray;
+      padding: 15px;
+    }
+  </style>
+</head>
+<body>
+  <main class="dashboard">
+    <button id="logoutBtn">Logout</button>
+    <h1>Client Dashboard</h1>
+    <p id="welcome"></p>
+
+    <!-- ✍️ NEW PROJECT FORM -->
+    <section>
+      <h2>Submit New Project</h2>
+      <form id="projectForm">
+        <input type="text" id="title" placeholder="Project Title" required>
+        <textarea id="description" placeholder="Project Description" required></textarea>
+        <button type="submit">Submit Project</button>
+      </form>
+    </section>
+
+    <hr style="margin: 30px 0;">
+
+    <!-- 📜 LIST OF CLIENT PROJECTS -->
+    <section>
+      <h2>My Submitted Projects</h2>
+      <table id="projectsTable">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Title</th>
+            <th>Description</th>
+            <th>Status</th>
+            <th>Writer</th>
+            <th>Submission</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </main>
+
+  <!-- Preview Modal (restricted for pre-delivery) -->
+  <div id="previewModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); align-items:center; justify-content:center; z-index:9999;">
+    <div id="previewInner" style="position:relative; background:#fff; padding:12px; width:90%; max-width:1000px; height:80vh; border-radius:8px; overflow:hidden;">
+      <button id="closePreview" style="position:absolute; right:12px; top:12px; background:#dc3545; color:#fff; border:none; padding:6px 10px; border-radius:6px; cursor:pointer;">Close</button>
+      <button id="openPreviewTab" style="position:absolute; right:120px; top:12px; background:#007bff; color:#fff; border:none; padding:6px 10px; border-radius:6px; cursor:pointer; display:none;">Open in new tab</button>
+      <div id="previewHolder" style="width:100%; height:100%; display:flex; align-items:center; justify-content:center;">
+        <div id="previewContent" style="width:100%; height:100%; position:relative;">
+        </div>
+      </div>
+      <div id="previewNotice" style="position:absolute; left:12px; bottom:12px; color:#333; font-size:13px;"></div>
+    </div>
+  </div>
+
+  <script>
+    const user = JSON.parse(localStorage.getItem("user"));
+    const welcome = document.getElementById("welcome");
+    const logoutBtn = document.getElementById("logoutBtn");
+    const form = document.getElementById("projectForm");
+    const tableBody = document.querySelector("#projectsTable tbody");
+
+    // ✅ Check access and redirect accordingly
+    const apiBase = (window.location && window.location.origin && window.location.origin.startsWith('http'))
+      ? window.location.origin
+      : 'http://localhost:3000';
+
+    const apiUrl = (path) => `${apiBase}${path}`;
+
+    if (!user) {
+      window.location.href = "login.html";
+    } else if (!user.role || user.role !== "client") {
+      const role = user && user.role ? user.role : null;
+      const allowed = ['admin', 'writer', 'client'];
+      if (!role || !allowed.includes(role)) {
+        localStorage.removeItem('user');
+        window.location.href = 'login.html';
+      } else {
+        alert("Access denied. Clients only!");
+        window.location.href = `${role}-dashboard.html`;
+      }
+    } else {
+      welcome.textContent = `Welcome, ${user.name}`;
+      loadProjects();
+    }
+
+    // 🚪 Logout
+    logoutBtn.onclick = () => {
+      localStorage.removeItem("user");
+      window.location.href = "login.html";
+    };
+
+    // 📦 Submit new project
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      const project = {
+        title: document.getElementById("title").value.trim(),
+        description: document.getElementById("description").value.trim(),
+        client_id: user.id,
+        status: "Pending"
+      };
+
+      const res = await fetch(apiUrl('/api/orders'), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(project)
+      });
+      let payload = null;
+      try {
+        payload = await res.json();
+      } catch (err) {
+        payload = { message: res.statusText || 'Server error' };
+      }
+
+      if (res.ok) {
+        alert(payload.message || '✅ Project submitted successfully!');
+        form.reset();
+        loadProjects();
+      } else {
+        alert(payload.message || '❌ Failed to submit project.');
+      }
+    });
+
+    // 📜 Load all client projects
+    async function loadProjects() {
+      try {
+        const res = await fetch(apiUrl('/api/orders'));
+        let data = [];
+        try {
+          data = await res.json();
+        } catch (err) {
+          console.error('Failed to parse /api/orders response', err);
+          tableBody.innerHTML = `<tr><td colspan="6" class="noOrders">Failed to load projects.</td></tr>`;
+          return;
+        }
+
+        tableBody.innerHTML = "";
+
+        const myProjects = data.filter(p => p.client_id === user.id);
+
+        if (myProjects.length === 0) {
+          tableBody.innerHTML = `<tr><td colspan="6" class="noOrders">No projects submitted yet</td></tr>`;
+          return;
+        }
+
+        myProjects.forEach(p => {
+          const statusClass = p.status ? p.status.toLowerCase().replace(/\s/g, '') : 'pending';
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${p.id}</td>
+            <td>${p.title}</td>
+            <td>${p.description}</td>
+            <td><span class="status ${statusClass}">${p.status}</span></td>
+            <td>${p.writer_name || "Unassigned"}</td>
+            <td>
+              ${p.submission_file
+                ? `<button onclick="previewSubmission(${p.id}, '${p.status.replace(/'/g, "\\'")}')">Preview Submission</button> <button onclick="openPreview(${p.id})">Open in new tab</button>`
+                : "Not yet submitted"}
+            </td>
+          `;
+          tableBody.appendChild(tr);
+        });
+      } catch (err) {
+        console.error("Error loading projects:", err);
+        tableBody.innerHTML = `<tr><td colspan="6" class="noOrders">Failed to load projects.</td></tr>`;
+      }
+    }
+
+    // 🔁 Auto refresh every 10 seconds
+    setInterval(loadProjects, 10000);
+
+    // ====== Preview logic ======
+    const previewModal = document.getElementById('previewModal');
+    const previewContent = document.getElementById('previewContent');
+    const previewNotice = document.getElementById('previewNotice');
+    const openPreviewTabBtn = document.getElementById('openPreviewTab');
+    let currentPreviewUrl = null;
+
+    document.getElementById('closePreview').onclick = () => {
+      previewModal.style.display = 'none';
+      previewContent.innerHTML = '';
+      previewNotice.textContent = '';
+      document.oncontextmenu = null;
+      document.onkeydown = null;
+      currentPreviewUrl = null;
+      openPreviewTabBtn.style.display = 'none';
+    };
+
+    openPreviewTabBtn.onclick = () => {
+      if (currentPreviewUrl) window.open(currentPreviewUrl, '_blank', 'noopener');
+    };
+
+    async function previewSubmission(orderId, status) {
+      previewContent.innerHTML = '<p style="text-align:center">Loading preview...</p>';
+      previewModal.style.display = 'flex';
+
+      try {
+        const res = await fetch(apiUrl(`/api/submission/${orderId}?userId=${user.id}`));
+        let data = {};
+        try { data = await res.json(); } catch (e) { data = {}; }
+        if (!res.ok) {
+          previewContent.innerHTML = `<p style="color:red">${data.message || 'Failed to load submission'}</p>`;
+          return;
+        }
+
+        // If server indicated a preview view, embed that wrapper (it includes watermark)
+        if (data.preview && data.previewUrl) {
+          const base = (window.location && window.location.origin && window.location.origin.startsWith('http'))
+            ? window.location.origin
+            : (apiUrl('/') || 'http://localhost:3000');
+          const previewView = data.previewUrl.startsWith('http') ? data.previewUrl : (data.previewUrl.startsWith('/') ? `${base}${data.previewUrl}` : `${base}/${data.previewUrl}`);
+
+          previewNotice.textContent = 'Preview only — download and copy disabled until delivery/payment.';
+          previewContent.innerHTML = `<iframe src="${previewView}" style="width:100%;height:100%;border:0;" sandbox="allow-scripts allow-same-origin"></iframe>`;
+
+          // expose current preview URL and show open-in-tab button
+          currentPreviewUrl = previewView;
+          openPreviewTabBtn.style.display = 'inline-block';
+
+          // Best-effort client side blocks while preview is open
+          document.oncontextmenu = (e) => { e.preventDefault(); };
+          document.onkeydown = (e) => {
+            if (e.ctrlKey && ['s','p','c','u','S','P','C','U'].includes(e.key)) {
+              e.preventDefault();
+              return false;
+            }
+          };
+          return;
+        }
+
+        // Fallback: if server returned a direct URL (delivered/admin/writer), open it normally
+        const url = data.url || data.submission_file;
+        if (!url) {
+          previewContent.innerHTML = '<p>No submission available.</p>';
+          return;
+        }
+        const base = (window.location && window.location.origin && window.location.origin.startsWith('http'))
+          ? window.location.origin
+          : (apiUrl('/') || 'http://localhost:3000');
+        const fullUrl = url.startsWith('http') ? url : (url.startsWith('/') ? `${base}${url}` : `${base}/${url}`);
+        const lower = fullUrl.toLowerCase();
+        const isDelivered = (status && status.toLowerCase().includes('delivered')) || false;
+
+        if (!isDelivered) {
+          previewNotice.textContent = 'Preview only — download and copy disabled until delivery/payment.';
+        } else {
+          previewNotice.textContent = 'Delivered — you may download the file.';
+        }
+
+        if (lower.endsWith('.pdf')) {
+          previewContent.innerHTML = `<iframe src="${fullUrl}" style="width:100%;height:100%;border:0;" sandbox="allow-scripts allow-forms"></iframe>`;
+        } else if (/(jpg|jpeg|png|gif)$/.test(lower)) {
+          previewContent.innerHTML = `<img src="${fullUrl}" style="max-width:100%;max-height:100%;user-select:none;pointer-events:none;" />`;
+        } else {
+          previewContent.innerHTML = `<p style="text-align:center">Preview not available for this file type.</p>`;
+        }
+      } catch (err) {
+        previewContent.innerHTML = `<p style="color:red">Error: ${err.message || err}</p>`;
+      }
+    }
+
+    // Open preview in a new tab (uses server-provided preview view when available)
+    async function openPreview(orderId) {
+      try {
+        const res = await fetch(apiUrl(`/api/submission/${orderId}?userId=${user.id}`));
+        let data = {};
+        try { data = await res.json(); } catch (e) { data = {}; }
+
+        if (!res.ok) {
+          alert(data.message || 'No preview or file available');
+          return;
+        }
+
+        if (data.preview && data.previewUrl) {
+          const base = (window.location && window.location.origin && window.location.origin.startsWith('http'))
+            ? window.location.origin
+            : (apiUrl('/') || 'http://localhost:3000');
+          const previewView = data.previewUrl.startsWith('http') ? data.previewUrl : (data.previewUrl.startsWith('/') ? `${base}${data.previewUrl}` : `${base}/${data.previewUrl}`);
+          window.open(previewView, '_blank', 'noopener');
+          return;
+        }
+
+        const url = data.url || data.submission_file;
+        if (url) {
+          const base = (window.location && window.location.origin && window.location.origin.startsWith('http'))
+            ? window.location.origin
+            : (apiUrl('/') || 'http://localhost:3000');
+          const fullUrl = url.startsWith('http') ? url : (url.startsWith('/') ? `${base}${url}` : `${base}/${url}`);
+          window.open(fullUrl, '_blank', 'noopener');
+          return;
+        }
+
+        alert('No preview or file available');
+      } catch (err) {
+        alert('Error opening preview: ' + (err.message || err));
+      }
+    }
+  </script>
+</body>
+</html>

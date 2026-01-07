@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login — ProWriter Solutions</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="login-page">
+    <div class="card">
+      <h1>Login to ProWriter</h1>
+
+      <form id="loginForm">
+        <input type="email" id="email" placeholder="Email" required>
+        <input type="password" id="password" placeholder="Password" required>
+        <button type="submit">Login</button>
+      </form>
+
+      <p id="message"></p>
+      <p>Don't have an account? <a href="register.html">Register here</a></p>
+    </div>
+  </main>
+
+  <script>
+    const form = document.getElementById('loginForm');
+    const message = document.getElementById('message');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      message.textContent = 'Checking credentials...';
+
+      const email = document.getElementById('email').value.trim().toLowerCase();
+      const password = document.getElementById('password').value;
+
+      try {
+        const apiUrl = (window.location && window.location.origin && window.location.origin.startsWith('http'))
+          ? `${window.location.origin}/api/login`
+          : 'http://localhost:3000/api/login';
+
+        const res = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+
+        let payload = null;
+        try {
+          payload = await res.json();
+        } catch (parseErr) {
+          payload = { message: res.statusText || 'Server error' };
+        }
+
+        if (!res.ok) {
+          message.textContent = payload.message || '⚠️ Login failed.';
+          return;
+        }
+
+        const user = payload;
+        message.textContent = '✅ Login successful! Redirecting...';
+        localStorage.setItem('user', JSON.stringify(user));
+
+        setTimeout(() => {
+          if (user.role === 'admin') {
+            window.location.href = 'admin-dashboard.html';
+          } else if (user.role === 'writer' || user.role === 'employee') {
+            window.location.href = 'writer-dashboard.html';
+          } else {
+            window.location.href = 'client-dashboard.html';
+          }
+        }, 800);
+      } catch (err) {
+        console.error(err);
+        message.textContent = `⚠️ ${err.message || 'Network or server error.'}`;
+      }
+    });
+  </script>
+</body>
+</html>

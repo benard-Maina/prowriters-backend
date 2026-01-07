@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Dashboard | ProWriter</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f7fa;
+      margin: 0;
+      padding: 0;
+    }
+    main.dashboard {
+      max-width: 1200px;
+      margin: 40px auto;
+      background: #fff;
+      padding: 25px;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    h1, h2 { color: #333; }
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    button:hover { background: #0056b3; }
+    .logout { float: right; background: crimson; }
+    input, select, textarea {
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      width: 100%;
+      margin: 5px 0 10px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+      background: #fff;
+    }
+    th, td {
+      border-bottom: 1px solid #ccc;
+      padding: 10px;
+      text-align: left;
+    }
+    th {
+      background: #007bff;
+      color: white;
+    }
+    tr:nth-child(even) { background: #f9f9f9; }
+    .status {
+      padding: 3px 7px;
+      border-radius: 5px;
+      color: #fff;
+      font-weight: bold;
+      font-size: 13px;
+    }
+    .pending { background: orange; }
+    .inprogress { background: #007bff; }
+    .submitted { background: purple; }
+    .delivered { background: green; }
+    .form-section {
+      background: #fdfdfd;
+      border: 1px solid #ddd;
+      padding: 20px;
+      border-radius: 8px;
+      margin-top: 25px;
+    }
+    .delete-btn {
+      background: #dc3545;
+    }
+    .delete-btn:hover { background: #b52d3a; }
+    .submission-link {
+      color: #007bff;
+      text-decoration: none;
+    }
+    .submission-link:hover {
+      text-decoration: underline;
+    }
+    .approve-btn {
+      background: green;
+    }
+    .approve-btn:hover {
+      background: darkgreen;
+    }
+  </style>
+</head>
+<body>
+  <main class="dashboard">
+    <h1>🧾 Admin Dashboard</h1>
+    <button id="logoutBtn" class="logout">Logout</button>
+    <p id="info"></p>
+
+    <!-- 👥 PENDING APPROVAL USERS -->
+    <section class="form-section">
+      <h2>Pending Approvals</h2>
+      <table id="pendingUsersTable">
+        <thead>
+          <tr>
+            <th>ID</th><th>Name</th><th>Email</th><th>Role</th><th>Country</th><th>Action</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- ✅ APPROVED USERS -->
+    <section class="form-section">
+      <h2>Approved Users</h2>
+      <table id="usersTable">
+        <thead>
+          <tr>
+            <th>ID</th><th>Name</th><th>Email</th><th>Role</th><th>Country</th><th>Action</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- 📝 ORDER / PROJECT MANAGEMENT -->
+    <section class="form-section">
+      <h2>Create New Order / Project</h2>
+      <form id="orderForm">
+        <input type="text" id="title" placeholder="Title" required />
+        <textarea id="description" placeholder="Description" rows="3" required></textarea>
+        <input type="number" id="client_id" placeholder="Client ID" required />
+        <button type="submit">Add Order</button>
+      </form>
+    </section>
+
+    <!-- 📜 ALL ORDERS -->
+    <section>
+      <h2>All Orders / Projects</h2>
+      <table id="ordersTable">
+        <thead>
+          <tr>
+            <th>ID</th><th>Title</th><th>Description</th><th>Client</th><th>Writer</th><th>Status</th><th>Submission</th><th>Action</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script>
+    // If this page was opened via the filesystem (file://), redirect to the server URL
+    if (window.location && window.location.protocol === 'file:') {
+      window.location.href = 'http://localhost:3000/admin-dashboard.html';
+    }
+
+    const user = JSON.parse(localStorage.getItem('user'));
+    const apiBase = (window.location && window.location.origin && window.location.origin.startsWith('http'))
+      ? window.location.origin
+      : 'http://localhost:3000';
+    const apiUrl = (p) => `${apiBase}${p}`;
+
+    if (!user) {
+      window.location.href = 'login.html';
+    } else if (!user.role || user.role !== 'admin') {
+      const role = user && user.role ? user.role : null;
+      const allowed = ['admin', 'writer', 'client'];
+      if (!role || !allowed.includes(role)) {
+        localStorage.removeItem('user');
+        window.location.href = 'login.html';
+      } else {
+        window.location.href = `${role}-dashboard.html`;
+      }
+    }
+
+    document.getElementById('info').textContent = `Welcome, ${user.name} (${user.role})`;
+
+    document.getElementById('logoutBtn').onclick = () => {
+      localStorage.removeItem('user');
+      window.location.href = 'login.html';
+    };
+
+    // 🔹 Load Pending Users
+    async function loadPendingUsers() {
+      const res = await fetch('/api/pending-users');
+      const users = await res.json();
+      const tbody = document.querySelector('#pendingUsersTable tbody');
+      tbody.innerHTML = users.length
+        ? users.map(u => `
+          <tr>
+            <td>${u.id}</td>
+            <td>${u.name}</td>
+            <td>${u.email}</td>
+            <td>${u.role}</td>
+            <td>${u.country || '—'}</td>
+            <td><button class="approve-btn" onclick="approveUser(${u.id})">Approve</button></td>
+          </tr>
+        `).join('')
+        : `<tr><td colspan="6" style="text-align:center;">No pending users</td></tr>`;
+    }
+
+    // ✅ Approve User
+    async function approveUser(id) {
+      if (!confirm('Approve this user?')) return;
+      const res = await fetch(apiUrl(`/api/approve-user/${id}`), { method: 'POST' });
+      const data = await res.json();
+      alert(data.message);
+      loadPendingUsers();
+      loadUsers();
+    }
+
+    // 🔹 Load Approved Users
+    async function loadUsers() {
+      try {
+        const res = await fetch('/api/users');
+        const users = await res.json();
+        const tbody = document.querySelector('#usersTable tbody');
+        tbody.innerHTML = users.length
+          ? users.map(u => `
+            <tr>
+              <td>${u.id}</td>
+              <td>${u.name}</td>
+              <td>${u.email}</td>
+              <td>${u.role}</td>
+              <td>${u.country || '—'}</td>
+              <td><button class="delete-btn" onclick="deleteUser(${u.id})">Delete</button></td>
+            </tr>
+          `).join('')
+          : `<tr><td colspan="6" style="text-align:center;">No approved users</td></tr>`;
+      } catch (err) {
+        console.error('Failed to load users', err);
+      }
+    }
+
+    // Delete user
+    async function deleteUser(id) {
+      if (!confirm('Delete this user?')) return;
+      try {
+        const res = await fetch(`/api/users/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        alert(data.message);
+        loadUsers();
+      } catch (err) {
+        console.error('Failed to delete user', err);
+        alert('Failed to delete user.');
+      }
+    }
+
+    // 🔹 Load Orders
+    async function loadOrders() {
+      try {
+        const res = await fetch(apiUrl('/api/orders'));
+        let orders = [];
+        try { orders = await res.json(); } catch (e) { console.error('Failed to parse /api/orders', e); }
+        const tbody = document.querySelector('#ordersTable tbody');
+        tbody.innerHTML = '';
+
+        if (!Array.isArray(orders) || orders.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:gray;">No orders yet</td></tr>`;
+          return;
+        }
+
+        orders.forEach(order => {
+          const statusClass = (order.status || '').toLowerCase().replace(/ /g, '');
+          const tr = document.createElement('tr');
+          const submissionPath = order.submission_file || order.submission_path || order.submission || '';
+          const submissionHtml = submissionPath
+            ? `<a href="${submissionPath}" target="_blank" class="submission-link">View File</a>`
+            : 'No Submission';
+
+          tr.innerHTML = `
+            <td>${order.id}</td>
+            <td>${order.title}</td>
+            <td>${order.description}</td>
+            <td>${order.client_name || '—'}</td>
+            <td>${order.writer_name || 'Unassigned'}</td>
+            <td><span class="status ${statusClass}">${order.status || ''}</span></td>
+            <td>${submissionHtml}</td>
+              <td>
+                <button onclick="assignWriter(${order.id})">Assign Writer</button>
+                <button onclick="markDelivered(${order.id})">Send to Client</button>
+                ${submissionPath ? `<button onclick="previewSubmission(${order.id})">Preview</button>` : ''}
+                <button class="delete-btn" onclick="deleteOrder(${order.id})">Delete</button>
+              </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      } catch (err) {
+        console.error('Failed to load orders', err);
+        const tbody = document.querySelector('#ordersTable tbody');
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:gray;">Failed to load orders</td></tr>`;
+      }
+    }
+
+    // Assign writer
+    async function assignWriter(orderId) {
+      const writerId = prompt("Enter Writer ID to assign:");
+      if (!writerId) return;
+      const res = await fetch(apiUrl('/api/assign'), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId, writerId, adminId: user.id })
+      });
+      const data = await res.json();
+      alert(data.message);
+      loadOrders();
+    }
+
+    // Send to client
+    async function markDelivered(orderId) {
+      if (!confirm("Deliver this work to client?")) return;
+      const res = await fetch(apiUrl(`/api/send-to-client/${orderId}`), { method: "POST", headers: {'Content-Type':'application/json'}, body: JSON.stringify({ adminId: user.id }) });
+      const data = await res.json();
+      alert(data.message);
+      loadOrders();
+    }
+
+    // Delete order
+    async function deleteOrder(id) {
+      if (!confirm('Delete this order?')) return;
+      const res = await fetch(`/api/orders/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      alert(data.message);
+      loadOrders();
+    }
+
+    // Add Order
+    document.getElementById('orderForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const title = document.getElementById('title').value;
+      const description = document.getElementById('description').value;
+      const client_id = document.getElementById('client_id').value;
+
+      const res = await fetch('/api/orders', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ title, description, client_id })
+      });
+      const data = await res.json();
+      alert(data.message);
+      e.target.reset();
+      loadOrders();
+    });
+
+    // Load all on start
+    loadPendingUsers();
+    loadOrders();
+    loadUsers();
+  </script>
+  <!-- Preview Modal -->
+  <div id="previewModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); align-items:center; justify-content:center; z-index:9999;">
+    <div id="previewContent" style="background:#fff; padding:16px; max-width:90%; max-height:90%; overflow:auto; border-radius:8px;">
+      <button id="closePreview" style="float:right;background:#dc3545;color:#fff;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;">Close</button>
+      <div id="previewBody" style="clear:both; margin-top:8px;"></div>
+    </div>
+  </div>
+
+  <script>
+    async function previewSubmission(orderId) {
+      const modal = document.getElementById('previewModal');
+      const body = document.getElementById('previewBody');
+      body.innerHTML = 'Loading preview...';
+      modal.style.display = 'flex';
+
+      try {
+        const res = await fetch(apiUrl(`/api/submission/${orderId}?userId=${user.id}`));
+        let data = {};
+        try { data = await res.json(); } catch (e) { data = {}; }
+        if (!res.ok) {
+          body.innerHTML = `<p style="color:red">${data.message || 'Failed to load submission'}</p>`;
+          return;
+        }
+
+        const url = data.url || data.submission_file;
+        if (!url) {
+          body.innerHTML = '<p>No submission available.</p>';
+          return;
+        }
+
+        // Build absolute URL for the resource
+        const base = (window.location && window.location.origin && window.location.origin.startsWith('http'))
+          ? window.location.origin
+          : (apiBase || 'http://localhost:3000');
+
+        const fullUrl = url.startsWith('http') ? url : (url.startsWith('/') ? `${base}${url}` : `${base}/${url}`);
+        const lower = fullUrl.toLowerCase();
+
+        if (lower.endsWith('.pdf')) {
+          body.innerHTML = `<iframe src="${fullUrl}" style="width:100%;height:70vh;border:0"></iframe>`;
+        } else if (/(jpg|jpeg|png|gif)$/.test(lower)) {
+          body.innerHTML = `<img src="${fullUrl}" style="max-width:100%;height:auto;" />`;
+        } else {
+          // For other file types provide a direct link to open/download
+          body.innerHTML = `<p>File: <a href="${fullUrl}" target="_blank" rel="noopener">Open submission</a></p>`;
+        }
+      } catch (err) {
+        body.innerHTML = `<p style="color:red">Error: ${err.message || err}</p>`;
+      }
+    }
+
+    document.getElementById('closePreview').onclick = () => {
+      document.getElementById('previewModal').style.display = 'none';
+      document.getElementById('previewBody').innerHTML = '';
+    };
+  </script>
+</body>
+</html>

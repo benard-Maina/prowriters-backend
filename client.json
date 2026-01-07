@@ -1,0 +1,10 @@
+﻿{
+    "id":  8,
+    "name":  "Test Client",
+    "email":  "client@example.com",
+    "password":  "pass",
+    "role":  "client",
+    "country":  "Nowhere",
+    "approved":  1,
+    "created_at":  "2026-01-05 11:48:35"
+}

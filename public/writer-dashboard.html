@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Writer Dashboard | ProWriter Solutions</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    body {
+      font-family: "Segoe UI", sans-serif;
+      background: #f4f6f9;
+      margin: 0;
+      padding: 0;
+    }
+
+    main.dashboard {
+      max-width: 1100px;
+      margin: 40px auto;
+      background: #fff;
+      border-radius: 10px;
+      padding: 25px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+
+    h1 {
+      text-align: center;
+      color: #333;
+    }
+
+    #logoutBtn {
+      background: #dc3545;
+      float: right;
+      border: none;
+      color: white;
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    #logoutBtn:hover { background: #b52d3a; }
+
+    section {
+      margin-top: 40px;
+    }
+
+    h2 {
+      color: #222;
+      margin-bottom: 10px;
+      border-bottom: 2px solid #007bff;
+      padding-bottom: 5px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+
+    th, td {
+      border: 1px solid #ddd;
+      padding: 10px;
+      text-align: left;
+    }
+
+    th {
+      background: #007bff;
+      color: white;
+    }
+
+    tr:nth-child(even) { background: #f9f9f9; }
+
+    .status {
+      padding: 3px 8px;
+      border-radius: 5px;
+      font-weight: bold;
+      color: white;
+    }
+    .pending { background: orange; }
+    .inprogress { background: #007bff; }
+    .completed { background: green; }
+    .submitted { background: purple; }
+
+    input[type="file"] {
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      padding: 6px;
+    }
+
+    button.uploadBtn {
+      background: #28a745;
+      color: white;
+      border: none;
+      padding: 7px 12px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    button.uploadBtn:hover { background: #218838; }
+
+    .job {
+      background: #f0f3f7;
+      padding: 12px;
+      margin-bottom: 10px;
+      border-radius: 8px;
+      box-shadow: 0 0 5px rgba(0,0,0,0.05);
+    }
+
+    .job h3 {
+      margin: 0;
+      color: #222;
+    }
+
+    .job p {
+      margin: 4px 0;
+      color: #555;
+    }
+
+    .job button {
+      margin-top: 8px;
+      background: #28a745;
+    }
+
+    .job button:hover {
+      background: #1f7e33;
+    }
+
+    .disabledBtn {
+      background: gray !important;
+      cursor: not-allowed;
+    }
+
+    .message {
+      padding: 8px;
+      margin-top: 10px;
+      border-radius: 5px;
+      color: #fff;
+      display: none;
+    }
+
+    .success { background: #28a745; }
+    .error { background: #dc3545; }
+  </style>
+</head>
+<body>
+  <main class="dashboard">
+    <button id="logoutBtn">Logout</button>
+    <h1>Writer Dashboard</h1>
+    <p id="welcome"></p>
+
+    <!-- 🧾 AVAILABLE JOBS -->
+    <section id="pendingJobs">
+      <h2>Available Jobs</h2>
+      <div id="jobsList"></div>
+      <div id="jobMessage" class="message"></div>
+    </section>
+
+    <!-- 🧩 ASSIGNED ORDERS -->
+    <section id="assignedOrders">
+      <h2>My Assigned Orders</h2>
+      <table id="ordersTable">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Title</th>
+            <th>Description</th>
+            <th>Status</th>
+            <th>Upload Work</th>
+            <th>Submission</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script>
+    const user = JSON.parse(localStorage.getItem("user"));
+    const welcome = document.getElementById("welcome");
+    const logoutBtn = document.getElementById("logoutBtn");
+    const jobsDiv = document.getElementById("jobsList");
+    const tbody = document.querySelector("#ordersTable tbody");
+
+    // ✅ Authentication check
+    const apiBase = (window.location && window.location.origin && window.location.origin.startsWith('http'))
+      ? window.location.origin
+      : 'http://localhost:3000';
+
+    const apiUrl = (path) => `${apiBase}${path}`;
+
+    if (!user) {
+      window.location.href = "login.html";
+    } else if (!user.role || user.role !== "writer") {
+      const role = user && user.role ? user.role : null;
+      const allowed = ['admin', 'writer', 'client'];
+      if (!role || !allowed.includes(role)) {
+        localStorage.removeItem('user');
+        window.location.href = 'login.html';
+      } else {
+        alert("Access denied! Writers only.");
+        window.location.href = `${role}-dashboard.html`;
+      }
+    } else {
+      welcome.textContent = `Welcome, ${user.name}`;
+      loadAvailableJobs();
+      loadOrders();
+    }
+
+    // 🚪 Logout
+    logoutBtn.onclick = () => {
+      localStorage.removeItem("user");
+      window.location.href = "login.html";
+    };
+
+    // ========================== 🧾 LOAD AVAILABLE JOBS ==========================
+    async function loadAvailableJobs() {
+      jobsDiv.innerHTML = "<p>Loading available jobs...</p>";
+      try {
+        const res = await fetch(apiUrl('/api/unassigned-orders'));
+        let jobs = [];
+        try { jobs = await res.json(); } catch (e) { console.error('Failed to parse /api/unassigned-orders', e); }
+        jobsDiv.innerHTML = "";
+
+        if (!Array.isArray(jobs) || jobs.length === 0) {
+          jobsDiv.innerHTML = "<p>No available jobs right now.</p>";
+          return;
+        }
+
+        jobs.forEach(job => {
+          const div = document.createElement("div");
+          div.classList.add("job");
+          div.innerHTML = `
+            <h3>${job.title}</h3>
+            <p>${job.description}</p>
+            <button id="apply-${job.id}" onclick="applyForJob(${job.id})">Apply for Job</button>
+          `;
+          jobsDiv.appendChild(div);
+        });
+      } catch (error) {
+        console.error("Error loading jobs:", error);
+        showMessage("Failed to load jobs.", "error");
+      }
+    }
+
+    // ========================== ✍️ APPLY FOR JOB ==========================
+    async function applyForJob(orderId) {
+      const btn = document.getElementById(`apply-${orderId}`);
+      btn.disabled = true;
+      btn.classList.add("disabledBtn");
+      btn.textContent = "Applying...";
+
+      try {
+        const res = await fetch(apiUrl('/api/assign'), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId, writerId: user.id })
+        });
+
+        let data = {};
+        try { data = await res.json(); } catch (e) { data = { message: res.statusText || 'Server error' }; }
+
+        if (res.ok) {
+          showMessage(data.message || "✅ Successfully applied for this job!", "success");
+          btn.textContent = "Applied";
+          loadAvailableJobs();
+          loadOrders();
+        } else {
+          showMessage(data.message || "Failed to apply.", "error");
+          btn.textContent = "Apply for Job";
+          btn.disabled = false;
+          btn.classList.remove("disabledBtn");
+        }
+      } catch (error) {
+        showMessage(`Server error: ${error.message || error}`, "error");
+        btn.textContent = "Apply for Job";
+        btn.disabled = false;
+        btn.classList.remove("disabledBtn");
+      }
+    }
+
+    // ========================== 📦 LOAD ASSIGNED ORDERS ==========================
+    async function loadOrders() {
+      tbody.innerHTML = `<tr><td colspan="6">Loading your assigned orders...</td></tr>`;
+      try {
+        const res = await fetch(apiUrl(`/api/assigned-orders/${user.id}`));
+        let myOrders = [];
+        try { myOrders = await res.json(); } catch (e) { console.error('Failed to parse /api/assigned-orders', e); }
+        tbody.innerHTML = "";
+
+        if (myOrders.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:gray;">No orders assigned yet</td></tr>`;
+          return;
+        }
+
+        myOrders.forEach(order => {
+          const statusClass = order.status.toLowerCase().replace(" ", "");
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${order.id}</td>
+            <td>${order.title}</td>
+            <td>${order.description}</td>
+            <td><span class="status ${statusClass}">${order.status}</span></td>
+            <td>
+              <form class="uploadForm" data-id="${order.id}" enctype="multipart/form-data">
+                <input type="file" name="file" accept=".pdf,.doc,.docx,.txt,.zip" required>
+                <button type="submit" class="uploadBtn">Submit</button>
+              </form>
+            </td>
+            <td>
+              ${order.submission_file
+                ? `<a href="${order.submission_file}" target="_blank">View</a>`
+                : "Not submitted"}
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+
+        // Upload form listeners
+        document.querySelectorAll(".uploadForm").forEach(form => {
+          form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const orderId = form.dataset.id;
+            const formData = new FormData(form);
+
+            try {
+              const res = await fetch(apiUrl(`/api/submit-work/${orderId}`), {
+                method: "POST",
+                body: formData
+              });
+
+              if (res.ok) {
+                alert("✅ Work uploaded successfully!");
+                loadOrders();
+              } else {
+                let data = {};
+                try { data = await res.json(); } catch (e) { data = { message: res.statusText || 'Upload failed' }; }
+                alert(data.message || "❌ Failed to upload file");
+              }
+            } catch (err) {
+              alert(`❌ Upload error: ${err.message || err}`);
+            }
+          });
+        });
+      } catch (error) {
+        console.error("Error loading orders:", error);
+        showMessage("Failed to load assigned orders.", "error");
+      }
+    }
+
+    // ========================== 🔔 MESSAGE HELPER ==========================
+    function showMessage(text, type) {
+      const box = document.getElementById("jobMessage");
+      box.textContent = text;
+      box.className = `message ${type}`;
+      box.style.display = "block";
+      setTimeout(() => (box.style.display = "none"), 3000);
+    }
+  </script>
+</body>
+</html>

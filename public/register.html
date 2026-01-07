@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Register — ProWriter Solutions</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="register-page">
+    <div class="card">
+      <h1>Create Account</h1>
+
+
+      <form id="registerForm">
+        <input type="text" id="name" placeholder="Full Name" required>
+        <input type="email" id="email" placeholder="Email" required>
+        <input type="password" id="password" placeholder="Password" required>
+        <input type="text" id="country" placeholder="Country" required>
+
+        <select id="role" required>
+          <option value="">Select Role</option>
+          <option value="admin">Admin</option>
+          <option value="writer">Writer</option>
+          <option value="client">Client</option>
+        </select>
+
+        <button type="submit">Register</button>
+      </form>
+
+      <p id="message"></p>
+      <p>Already have an account? <a href="login.html">Login here</a></p>
+    </div>
+  </main>
+
+  <script>
+    const form = document.getElementById('registerForm');
+    const message = document.getElementById('message');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      message.textContent = "⏳ Creating account...";
+
+      const name = document.getElementById('name').value.trim();
+      const email = document.getElementById('email').value.trim().toLowerCase();
+      const password = document.getElementById('password').value.trim();
+      const role = document.getElementById('role').value;
+      const country = document.getElementById('country').value.trim();
+
+      try {
+        const apiUrl = (window.location && window.location.origin && window.location.origin.startsWith('http'))
+          ? `${window.location.origin}/api/register`
+          : 'http://localhost:3000/api/register';
+
+        const res = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, email, password, role, country })
+        });
+
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (parseErr) {
+          data = { message: res.statusText || 'Server error' };
+        }
+
+        if (res.ok) {
+          message.textContent = '✅ Registration submitted for approval.';
+          console.log('✅ Registered:', data);
+        } else {
+          message.textContent = `❌ Error: ${data.message || 'Registration failed'}`;
+          console.error('❌ Error:', data.message || data);
+        }
+      } catch (err) {
+        message.textContent = `⚠️ ${err.message || 'Network or server error.'}`;
+        console.error('⚠️ Fetch error:', err);
+      }
+    });
+  </script>
+</body>
+</html>

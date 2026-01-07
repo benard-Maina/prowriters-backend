@@ -1,0 +1,10 @@
+﻿{
+    "id":  9,
+    "name":  "Test Writer",
+    "email":  "writer@example.com",
+    "password":  "pass",
+    "role":  "writer",
+    "country":  "Nowhere",
+    "approved":  1,
+    "created_at":  "2026-01-05 11:49:22"
+}
