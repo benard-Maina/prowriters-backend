@@ -1,1 +1,23 @@
-node_modules/ 
+﻿node_modules/
+
+# Local SQLite DB
+prowriter.db
+*.db
+*.db-journal
+
+# Uploads and generated previews
+uploads/
+
+# Environment files
+.env
+
+# OS files
+.DS_Store
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Visual Studio Code
+.vscode/
