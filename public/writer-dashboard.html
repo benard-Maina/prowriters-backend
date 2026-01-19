@@ -38,6 +38,86 @@
     }
     #logoutBtn:hover { background: #b52d3a; }
 
+    /* Profile icon + dropdown */
+    .profile-container {
+      float: right;
+      position: relative;
+      margin-left: 8px;
+    }
+
+    #profileBtn {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: #007bff;
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      cursor: pointer;
+      border: none;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+    }
+
+    #profileDropdown {
+      position: absolute;
+      right: 0;
+      top: 48px;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+      display: none;
+      min-width: 140px;
+      z-index: 40;
+    }
+
+    #profileDropdown button {
+      display: block;
+      width: 100%;
+      padding: 8px 12px;
+      border: none;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    #profileDropdown button:hover { background: #f5f5f5; }
+
+    /* details modal */
+    .details-modal {
+      display: none;
+      position: fixed;
+      z-index: 80;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      overflow: auto;
+      background-color: rgba(0,0,0,0.4);
+    }
+
+    .details-modal-content {
+      background-color: #fefefe;
+      margin: 10% auto;
+      padding: 20px;
+      border: 1px solid #888;
+      width: 90%;
+      max-width: 420px;
+      border-radius: 8px;
+    }
+
+    .details-close {
+      color: #aaa;
+      float: right;
+      font-size: 22px;
+      font-weight: bold;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+    }
+
     section {
       margin-top: 40px;
     }
@@ -143,7 +223,13 @@
 </head>
 <body>
   <main class="dashboard">
-    <button id="logoutBtn">Logout</button>
+    <div class="profile-container">
+      <button id="profileBtn" title="Profile">YY</button>
+      <div id="profileDropdown">
+        <button id="profileDetails">Details</button>
+        <button id="profileLogout">Logout</button>
+      </div>
+    </div>
     <h1>Writer Dashboard</h1>
     <p id="welcome"></p>
 
@@ -186,6 +272,13 @@
       : 'http://localhost:3000';
 
     const apiUrl = (path) => `${apiBase}${path}`;
+    const storedToken = localStorage.getItem('token');
+    async function fetchApi(path, options) {
+      options = options || {};
+      options.headers = options.headers || {};
+      if (storedToken) options.headers['Authorization'] = `Bearer ${storedToken}`;
+      return fetch(apiUrl(path), options);
+    }
 
     if (!user) {
       window.location.href = "login.html";
@@ -205,17 +298,69 @@
       loadOrders();
     }
 
-    // 🚪 Logout
-    logoutBtn.onclick = () => {
-      localStorage.removeItem("user");
-      window.location.href = "login.html";
-    };
+    // Profile dropdown, details and logout
+    const profileBtn = document.getElementById("profileBtn");
+    const profileDropdown = document.getElementById("profileDropdown");
+    const profileDetailsBtn = document.getElementById("profileDetails");
+    const profileLogoutBtn = document.getElementById("profileLogout");
+
+    function setProfileInitials() {
+      try {
+        if (user && user.name) {
+          const names = (user.name || "").split(" ").filter(Boolean);
+          const initials = (names.length === 1)
+            ? names[0].slice(0,2)
+            : (names[0][0] + (names[1] ? names[1][0] : '')).slice(0,2);
+          profileBtn.textContent = initials.toUpperCase();
+        } else {
+          profileBtn.textContent = 'ME';
+        }
+      } catch (e) { profileBtn.textContent = 'ME'; }
+    }
+
+    profileBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      profileDropdown.style.display = profileDropdown.style.display === 'block' ? 'none' : 'block';
+    });
+
+    // close dropdown on outside click
+    document.addEventListener('click', () => { profileDropdown.style.display = 'none'; });
+
+    profileLogoutBtn.addEventListener('click', () => {
+      localStorage.removeItem('user');
+      localStorage.removeItem('token');
+      window.location.href = 'login.html';
+    });
+
+    // Details modal (inserted below main)
+    function openDetailsModal() {
+      const modal = document.getElementById('detailsModal');
+      const content = document.getElementById('detailsContent');
+      if (!modal || !content) return;
+      const u = user || {};
+      content.innerHTML = `
+        <p><strong>Name:</strong> ${u.name || 'N/A'}</p>
+        <p><strong>Email:</strong> ${u.email || 'N/A'}</p>
+        <p><strong>Role:</strong> ${u.role || 'N/A'}</p>
+        <p><strong>ID:</strong> ${u.id || 'N/A'}</p>
+      `;
+      modal.style.display = 'block';
+    }
+
+    profileDetailsBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      profileDropdown.style.display = 'none';
+      openDetailsModal();
+    });
+
+    // initialize initials
+    setProfileInitials();
 
     // ========================== 🧾 LOAD AVAILABLE JOBS ==========================
     async function loadAvailableJobs() {
       jobsDiv.innerHTML = "<p>Loading available jobs...</p>";
       try {
-        const res = await fetch(apiUrl('/api/unassigned-orders'));
+        const res = await fetchApi('/api/unassigned-orders');
         let jobs = [];
         try { jobs = await res.json(); } catch (e) { console.error('Failed to parse /api/unassigned-orders', e); }
         jobsDiv.innerHTML = "";
@@ -249,7 +394,7 @@
       btn.textContent = "Applying...";
 
       try {
-        const res = await fetch(apiUrl('/api/assign'), {
+        const res = await fetchApi('/api/claim', {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ orderId, writerId: user.id })
@@ -281,7 +426,7 @@
     async function loadOrders() {
       tbody.innerHTML = `<tr><td colspan="6">Loading your assigned orders...</td></tr>`;
       try {
-        const res = await fetch(apiUrl(`/api/assigned-orders/${user.id}`));
+        const res = await fetchApi(`/api/assigned-orders/${user.id}`);
         let myOrders = [];
         try { myOrders = await res.json(); } catch (e) { console.error('Failed to parse /api/assigned-orders', e); }
         tbody.innerHTML = "";
@@ -322,7 +467,7 @@
             const formData = new FormData(form);
 
             try {
-              const res = await fetch(apiUrl(`/api/submit-work/${orderId}`), {
+              const res = await fetchApi(`/api/submit-work/${orderId}`, {
                 method: "POST",
                 body: formData
               });
@@ -354,6 +499,26 @@
       box.style.display = "block";
       setTimeout(() => (box.style.display = "none"), 3000);
     }
+
+    // ========================== Details Modal Handlers ==========================
+    // add modal element handlers
+    (function () {
+      const modalHtml = `
+        <div id="detailsModal" class="details-modal">
+          <div class="details-modal-content">
+            <button id="closeDetails" class="details-close">&times;</button>
+            <h3>Profile Details</h3>
+            <div id="detailsContent"></div>
+          </div>
+        </div>
+      `;
+      document.querySelector('main.dashboard').insertAdjacentHTML('beforeend', modalHtml);
+
+      const modal = document.getElementById('detailsModal');
+      const closeBtn = document.getElementById('closeDetails');
+      closeBtn.addEventListener('click', () => { modal.style.display = 'none'; });
+      window.addEventListener('click', (e) => { if (e.target === modal) modal.style.display = 'none'; });
+    })();
   </script>
 </body>
 </html>

@@ -21,10 +21,7 @@
       box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
     }
 
-    h1 {
-      text-align: center;
-      color: #333;
-    }
+    h1 { text-align: center; color: #333; }
 
     #logoutBtn {
       background: #dc3545;
@@ -108,6 +105,19 @@
 
     td a:hover { text-decoration: underline; }
 
+    .delete-btn {
+      background: #dc3545;
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+      margin-left: 5px;
+    }
+
+    .delete-btn:hover { background: #b52d3a; }
+
     #welcome {
       font-weight: bold;
       margin-bottom: 10px;
@@ -118,19 +128,32 @@
       color: gray;
       padding: 15px;
     }
+
+    /* small accessibility helper */
+    .sr-only { position:absolute; left:-9999px; top:auto; width:1px; height:1px; overflow:hidden; }
   </style>
 </head>
 <body>
   <main class="dashboard">
-    <button id="logoutBtn">Logout</button>
-    <h1>Client Dashboard</h1>
-    <p id="welcome"></p>
+    <header style="display:flex;justify-content:space-between;align-items:center;">
+      <h1>Client Dashboard</h1>
+      <div class="profile" style="position:relative;">
+        <button id="profileBtn" title="Profile" style="width:40px;height:40px;border-radius:50%;border:none;background:#007bff;color:#fff;font-weight:bold;cursor:pointer;">C</button>
+        <div id="profileDropdown" style="display:none;position:absolute;right:0;top:calc(100% + 8px);background:#fff;border:1px solid #ddd;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.08);min-width:160px;z-index:1000;overflow:hidden;">
+          <div id="profileDetailsBtn" style="padding:10px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;">Details</div>
+          <div id="profileLogout" style="padding:10px 12px;cursor:pointer;color:#fff;background:crimson;text-align:center;">Logout</div>
+        </div>
+      </div>
+    </header>
+    <p id="welcome" aria-live="polite"></p>
 
     <!-- ✍️ NEW PROJECT FORM -->
     <section>
       <h2>Submit New Project</h2>
       <form id="projectForm">
+        <label class="sr-only" for="title">Project Title</label>
         <input type="text" id="title" placeholder="Project Title" required>
+        <label class="sr-only" for="description">Project Description</label>
         <textarea id="description" placeholder="Project Description" required></textarea>
         <button type="submit">Submit Project</button>
       </form>
@@ -141,7 +164,8 @@
     <!-- 📜 LIST OF CLIENT PROJECTS -->
     <section>
       <h2>My Submitted Projects</h2>
-      <table id="projectsTable">
+      <table id="projectsTable" aria-describedby="tableDesc">
+        <caption id="tableDesc" class="sr-only">List of projects submitted by the logged-in client</caption>
         <thead>
           <tr>
             <th>ID</th>
@@ -149,7 +173,7 @@
             <th>Description</th>
             <th>Status</th>
             <th>Writer</th>
-            <th>Submission</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -158,261 +182,484 @@
   </main>
 
   <!-- Preview Modal (restricted for pre-delivery) -->
-  <div id="previewModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); align-items:center; justify-content:center; z-index:9999;">
+  <div id="previewModal" role="dialog" aria-modal="true" aria-labelledby="previewTitle" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); align-items:center; justify-content:center; z-index:9999;">
     <div id="previewInner" style="position:relative; background:#fff; padding:12px; width:90%; max-width:1000px; height:80vh; border-radius:8px; overflow:hidden;">
+      <h3 id="previewTitle" class="sr-only">Submission preview</h3>
       <button id="closePreview" style="position:absolute; right:12px; top:12px; background:#dc3545; color:#fff; border:none; padding:6px 10px; border-radius:6px; cursor:pointer;">Close</button>
-      <button id="openPreviewTab" style="position:absolute; right:120px; top:12px; background:#007bff; color:#fff; border:none; padding:6px 10px; border-radius:6px; cursor:pointer; display:none;">Open in new tab</button>
+      <button id="openPreviewTab" style="position:absolute; right:200px; top:12px; background:#007bff; color:#fff; border:none; padding:6px 10px; border-radius:6px; cursor:pointer; display:none;">Open in new tab</button>
+      <button id="payBtn" style="position:absolute; right:120px; top:12px; background:#28a745; color:#fff; border:none; padding:6px 10px; border-radius:6px; cursor:pointer; display:none;">Pay to unlock download</button>
       <div id="previewHolder" style="width:100%; height:100%; display:flex; align-items:center; justify-content:center;">
-        <div id="previewContent" style="width:100%; height:100%; position:relative;">
-        </div>
+        <div id="previewContent" style="width:100%; height:100%; position:relative;"></div>
       </div>
       <div id="previewNotice" style="position:absolute; left:12px; bottom:12px; color:#333; font-size:13px;"></div>
     </div>
   </div>
 
+    <!-- Details Modal -->
+    <div id="detailsModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); align-items:center; justify-content:center; z-index:9999;">
+      <div style="background:#fff; padding:16px; max-width:420px; width:90%; border-radius:8px; position:relative;">
+        <button id="closeDetails" style="position:absolute; right:12px; top:12px; background:#dc3545;color:#fff;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;">Close</button>
+        <h3 style="margin-top:0;">Profile Details</h3>
+        <div id="detailsBody" style="margin-top:8px; color:#333;"></div>
+      </div>
+    </div>
+
   <script>
-    const user = JSON.parse(localStorage.getItem("user"));
+    // basic state and DOM refs
+    const user = JSON.parse(localStorage.getItem("user") || 'null');
     const welcome = document.getElementById("welcome");
-    const logoutBtn = document.getElementById("logoutBtn");
+    const profileBtn = document.getElementById('profileBtn');
+    const profileDropdown = document.getElementById('profileDropdown');
     const form = document.getElementById("projectForm");
     const tableBody = document.querySelector("#projectsTable tbody");
 
-    // ✅ Check access and redirect accordingly
-    const apiBase = (window.location && window.location.origin && window.location.origin.startsWith('http'))
-      ? window.location.origin
-      : 'http://localhost:3000';
-
+    // API base - allow override via window.__API_BASE__ in dev if needed
+    const apiBase = (window.__API_BASE__ && String(window.__API_BASE__).trim())
+      || ((window.location && window.location.origin && window.location.origin.startsWith('http')) ? window.location.origin : 'http://localhost:3000');
     const apiUrl = (path) => `${apiBase}${path}`;
+    const storedToken = localStorage.getItem('token');
+    // helper to include Authorization header when token available
+    async function fetchApi(path, options) {
+      options = options || {};
+      options.headers = options.headers || {};
+      if (storedToken) options.headers['Authorization'] = `Bearer ${storedToken}`;
+      return fetch(apiUrl(path), options);
+    }
 
+    // helpers
+    async function safeJson(res) {
+      try { return await res.json(); } catch (e) { return null; }
+    }
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+    function resolveUrl(candidate) {
+      try { return new URL(candidate, apiBase).toString(); } catch(e) { return null; }
+    }
+    function isAllowedEmbed(url) {
+      if (!url) return false;
+      try {
+        const u = new URL(url);
+        const originOk = u.origin === window.location.origin || u.origin === new URL(apiBase).origin;
+        return originOk;
+      } catch (e) { return false; }
+    }
+
+    // auth / role checks
     if (!user) {
       window.location.href = "login.html";
     } else if (!user.role || user.role !== "client") {
-      const role = user && user.role ? user.role : null;
-      const allowed = ['admin', 'writer', 'client'];
-      if (!role || !allowed.includes(role)) {
+      // if role exists, redirect to role dashboard; otherwise force login
+      if (user.role) {
+        window.location.href = `${user.role}-dashboard.html`;
+      } else {
         localStorage.removeItem('user');
         window.location.href = 'login.html';
-      } else {
-        alert("Access denied. Clients only!");
-        window.location.href = `${role}-dashboard.html`;
       }
     } else {
-      welcome.textContent = `Welcome, ${user.name}`;
-      loadProjects();
+      welcome.textContent = `Welcome, ${user.name || 'Client'}`;
     }
 
-    // 🚪 Logout
-    logoutBtn.onclick = () => {
-      localStorage.removeItem("user");
-      window.location.href = "login.html";
-    };
+    // profile dropdown + logout handling
+    if (profileBtn && user && user.name) {
+      const initials = user.name.split(' ').map(n => n && n[0]).filter(Boolean).slice(0,2).join('').toUpperCase();
+      profileBtn.textContent = initials || 'C';
+    }
+    function closeProfileDropdown() { if (profileDropdown) profileDropdown.style.display = 'none'; }
+    profileBtn && profileBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!profileDropdown) return;
+      profileDropdown.style.display = (profileDropdown.style.display === 'block') ? 'none' : 'block';
+    });
+    document.addEventListener('click', () => closeProfileDropdown());
+    const profileDetailsBtn = document.getElementById('profileDetailsBtn');
+    const profileLogoutBtn = document.getElementById('profileLogout');
+    profileDetailsBtn && profileDetailsBtn.addEventListener('click', () => {
+      const modal = document.getElementById('detailsModal');
+      const body = document.getElementById('detailsBody');
+      if (modal && body) {
+        body.innerHTML = `\n          <p><strong>Name:</strong> ${user.name || '—'}</p>\n          <p><strong>Email:</strong> ${user.email || '—'}</p>\n          <p><strong>Role:</strong> ${user.role || '—'}</p>\n          <p><strong>ID:</strong> ${user.id || '—'}</p>\n          <p><strong>Country:</strong> ${user.country || '—'}</p>\n        `;
+        modal.style.display = 'flex';
+      }
+      closeProfileDropdown();
+    });
+    profileLogoutBtn && profileLogoutBtn.addEventListener('click', () => {
+      localStorage.removeItem('user');
+      localStorage.removeItem('token');
+      window.location.href = 'login.html';
+    });
 
-    // 📦 Submit new project
+    // prevent overlapping loads
+    let isLoadingProjects = false;
+    async function loadProjects() {
+      if (isLoadingProjects) return;
+      isLoadingProjects = true;
+      try {
+        const res = await fetchApi('/api/orders');
+        const data = await safeJson(res) || [];
+        tableBody.innerHTML = "";
+        const myProjects = Array.isArray(data) ? data.filter(p => p.client_id === user.id) : [];
+        if (!myProjects.length) {
+          tableBody.innerHTML = `<tr><td colspan="6" class="noOrders">No projects submitted yet</td></tr>`;
+          return;
+        }
+        myProjects.forEach(p => {
+          const tr = document.createElement('tr');
+
+          const tdId = document.createElement('td'); tdId.textContent = p.id; tr.appendChild(tdId);
+          const tdTitle = document.createElement('td'); tdTitle.textContent = p.title || ''; tr.appendChild(tdTitle);
+          const tdDesc = document.createElement('td'); tdDesc.textContent = p.description || ''; tr.appendChild(tdDesc);
+
+          const tdStatus = document.createElement('td');
+          const spanStatus = document.createElement('span');
+          const statusClass = p.status ? p.status.toLowerCase().replace(/\s/g, '') : 'pending';
+          spanStatus.className = `status ${statusClass}`;
+          spanStatus.textContent = p.status || '';
+          tdStatus.appendChild(spanStatus);
+          tr.appendChild(tdStatus);
+
+          const tdWriter = document.createElement('td'); tdWriter.textContent = p.writer_name || 'Unassigned'; tr.appendChild(tdWriter);
+
+          const tdActions = document.createElement('td');
+
+          if (p.submission_file || p.submission_url) {
+            const previewBtn = document.createElement('button');
+            previewBtn.type = 'button';
+            previewBtn.textContent = 'Preview';
+            previewBtn.addEventListener('click', () => previewSubmission(p.id, p.status, p));
+            tdActions.appendChild(previewBtn);
+
+            const openBtn = document.createElement('button');
+            openBtn.type = 'button';
+            openBtn.textContent = 'Open in new tab';
+            openBtn.style.marginLeft = '6px';
+            openBtn.addEventListener('click', () => openPreview(p.id, p));
+            tdActions.appendChild(openBtn);
+
+            // Add Pay button (MPesa) for unpaid, undelivered submissions
+            const payActionBtn = document.createElement('button');
+            payActionBtn.type = 'button';
+            payActionBtn.textContent = 'Pay';
+            payActionBtn.style.marginLeft = '6px';
+            const isDelivered = p.status && String(p.status).toLowerCase().includes('delivered');
+            const isPaid = p.payment_status && String(p.payment_status).toLowerCase() === 'paid';
+            if (!isDelivered && !isPaid) {
+              payActionBtn.addEventListener('click', async () => {
+                const phone = prompt('Enter mobile phone number to pay (e.g. 2547XXXXXXXX):', '');
+                if (!phone) return alert('Phone number required');
+                let amt = (p && p.amount) ? Number(p.amount) : 0;
+                if (!amt || amt === 0) {
+                  const a = prompt('Enter amount to pay (KES):', '50');
+                  if (!a) return alert('Amount required');
+                  amt = Number(a);
+                }
+                payActionBtn.disabled = true;
+                try {
+                  const resp = await fetch(apiUrl('/api/payments/initiate'), {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ orderId: p.id, phoneNumber: phone, amount: amt })
+                  });
+                  const payload = await safeJson(resp) || {};
+                  if (!resp.ok) {
+                    alert(payload.message || 'Failed to initiate payment');
+                    payActionBtn.disabled = false;
+                    return;
+                  }
+                  alert('Payment initiated. Follow prompts on your phone.');
+                  // poll for confirmation
+                  const start = Date.now();
+                  const poll = async () => {
+                    try {
+                      const sres = await fetch(apiUrl(`/api/orders/${p.id}/payment-status`));
+                      const sdata = await safeJson(sres) || {};
+                      if (sdata.payment_status === 'paid') {
+                        alert('Payment confirmed — download unlocked.');
+                        loadProjects();
+                        return;
+                      }
+                      if (Date.now() - start > 60000) {
+                        alert('Payment confirmation timed out. Check later.');
+                        payActionBtn.disabled = false;
+                        return;
+                      }
+                      setTimeout(poll, 2000);
+                    } catch (e) {
+                      console.error('Poll error', e);
+                      setTimeout(poll, 2000);
+                    }
+                  };
+                  setTimeout(poll, 1500);
+                } catch (e) {
+                  alert('Payment error: ' + (e.message || e));
+                  payActionBtn.disabled = false;
+                }
+              });
+              tdActions.appendChild(payActionBtn);
+            }
+          } else {
+            tdActions.appendChild(document.createTextNode('Not yet submitted'));
+          }
+
+          const deleteBtn = document.createElement('button');
+          deleteBtn.type = 'button';
+          deleteBtn.className = 'delete-btn';
+          deleteBtn.textContent = 'Delete';
+          deleteBtn.addEventListener('click', () => deleteProject(p.id));
+          tdActions.appendChild(deleteBtn);
+
+          tr.appendChild(tdActions);
+          tableBody.appendChild(tr);
+        });
+      } catch (err) {
+        console.error("Error loading projects:", err);
+        tableBody.innerHTML = `<tr><td colspan="6" class="noOrders">Failed to load projects.</td></tr>`;
+      } finally {
+        isLoadingProjects = false;
+      }
+    }
+
+    // submit new project
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
-
       const project = {
         title: document.getElementById("title").value.trim(),
         description: document.getElementById("description").value.trim(),
         client_id: user.id,
         status: "Pending"
       };
-
-      const res = await fetch(apiUrl('/api/orders'), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(project)
-      });
-      let payload = null;
       try {
-        payload = await res.json();
+        const res = await fetchApi('/api/orders', {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(project)
+        });
+        const payload = await safeJson(res) || {};
+        if (res.ok) {
+          alert(payload.message || '✅ Project submitted successfully!');
+          form.reset();
+          loadProjects();
+        } else {
+          alert(payload.message || `❌ Failed to submit project. (${res.status})`);
+        }
       } catch (err) {
-        payload = { message: res.statusText || 'Server error' };
-      }
-
-      if (res.ok) {
-        alert(payload.message || '✅ Project submitted successfully!');
-        form.reset();
-        loadProjects();
-      } else {
-        alert(payload.message || '❌ Failed to submit project.');
+        alert('Error submitting project: ' + (err.message || err));
       }
     });
 
-    // 📜 Load all client projects
-    async function loadProjects() {
-      try {
-        const res = await fetch(apiUrl('/api/orders'));
-        let data = [];
-        try {
-          data = await res.json();
-        } catch (err) {
-          console.error('Failed to parse /api/orders response', err);
-          tableBody.innerHTML = `<tr><td colspan="6" class="noOrders">Failed to load projects.</td></tr>`;
-          return;
-        }
-
-        tableBody.innerHTML = "";
-
-        const myProjects = data.filter(p => p.client_id === user.id);
-
-        if (myProjects.length === 0) {
-          tableBody.innerHTML = `<tr><td colspan="6" class="noOrders">No projects submitted yet</td></tr>`;
-          return;
-        }
-
-        myProjects.forEach(p => {
-          const statusClass = p.status ? p.status.toLowerCase().replace(/\s/g, '') : 'pending';
-          const tr = document.createElement("tr");
-          tr.innerHTML = `
-            <td>${p.id}</td>
-            <td>${p.title}</td>
-            <td>${p.description}</td>
-            <td><span class="status ${statusClass}">${p.status}</span></td>
-            <td>${p.writer_name || "Unassigned"}</td>
-            <td>
-              ${p.submission_file
-                ? `<button onclick="previewSubmission(${p.id}, '${p.status.replace(/'/g, "\\'")}')">Preview Submission</button> <button onclick="openPreview(${p.id})">Open in new tab</button>`
-                : "Not yet submitted"}
-            </td>
-          `;
-          tableBody.appendChild(tr);
-        });
-      } catch (err) {
-        console.error("Error loading projects:", err);
-        tableBody.innerHTML = `<tr><td colspan="6" class="noOrders">Failed to load projects.</td></tr>`;
-      }
-    }
-
-    // 🔁 Auto refresh every 10 seconds
-    setInterval(loadProjects, 10000);
-
-    // ====== Preview logic ======
+    // preview modal management (accessibility + event cleanup)
     const previewModal = document.getElementById('previewModal');
     const previewContent = document.getElementById('previewContent');
     const previewNotice = document.getElementById('previewNotice');
     const openPreviewTabBtn = document.getElementById('openPreviewTab');
+    const closePreviewBtn = document.getElementById('closePreview');
     let currentPreviewUrl = null;
+    let previousActiveElement = null;
+    let onContextMenuHandler = null;
+    let onKeyDownHandler = null;
+    const payBtn = document.getElementById('payBtn');
 
-    document.getElementById('closePreview').onclick = () => {
+    function openModal() {
+      previousActiveElement = document.activeElement;
+      previewModal.style.display = 'flex';
+      closePreviewBtn.focus();
+    }
+    function closeModal() {
       previewModal.style.display = 'none';
       previewContent.innerHTML = '';
       previewNotice.textContent = '';
-      document.oncontextmenu = null;
-      document.onkeydown = null;
       currentPreviewUrl = null;
       openPreviewTabBtn.style.display = 'none';
-    };
+      if (payBtn) payBtn.style.display = 'none';
+      if (onContextMenuHandler) document.removeEventListener('contextmenu', onContextMenuHandler);
+      if (onKeyDownHandler) document.removeEventListener('keydown', onKeyDownHandler);
+      if (previousActiveElement && previousActiveElement.focus) previousActiveElement.focus();
+    }
 
-    openPreviewTabBtn.onclick = () => {
-      if (currentPreviewUrl) window.open(currentPreviewUrl, '_blank', 'noopener');
-    };
+    closePreviewBtn.addEventListener('click', closeModal);
+    openPreviewTabBtn.addEventListener('click', () => { if (currentPreviewUrl) window.open(currentPreviewUrl, '_blank', 'noopener'); });
+    // close on Esc
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && previewModal.style.display === 'flex') closeModal();
+    });
 
-    async function previewSubmission(orderId, status) {
+    // close details modal
+    const closeDetails = document.getElementById('closeDetails');
+    if (closeDetails) {
+      closeDetails.onclick = () => {
+        const m = document.getElementById('detailsModal'); if (m) m.style.display = 'none';
+        const db = document.getElementById('detailsBody'); if (db) db.innerHTML = '';
+      };
+    }
+
+    async function previewSubmission(orderId, status, cached) {
       previewContent.innerHTML = '<p style="text-align:center">Loading preview...</p>';
-      previewModal.style.display = 'flex';
+      previewNotice.textContent = '';
+      openModal();
 
       try {
-        const res = await fetch(apiUrl(`/api/submission/${orderId}?userId=${user.id}`));
-        let data = {};
-        try { data = await res.json(); } catch (e) { data = {}; }
-        if (!res.ok) {
-          previewContent.innerHTML = `<p style="color:red">${data.message || 'Failed to load submission'}</p>`;
-          return;
+        // use cached object when available to avoid extra fetch
+        let data = cached || null;
+        if (!data || !data.submission_file && !data.submission_url) {
+          const res = await fetchApi(`/api/submission/${orderId}?userId=${user.id}`);
+          data = await safeJson(res) || {};
+          if (!res.ok) {
+            previewContent.innerHTML = `<p style="color:red">${escapeHtml(data.message || 'Failed to load submission')}</p>`;
+            return;
+          }
         }
 
-        // If server indicated a preview view, embed that wrapper (it includes watermark)
-        if (data.preview && data.previewUrl) {
-          const base = (window.location && window.location.origin && window.location.origin.startsWith('http'))
-            ? window.location.origin
-            : (apiUrl('/') || 'http://localhost:3000');
-          const previewView = data.previewUrl.startsWith('http') ? data.previewUrl : (data.previewUrl.startsWith('/') ? `${base}${data.previewUrl}` : `${base}/${data.previewUrl}`);
-
-          previewNotice.textContent = 'Preview only — download and copy disabled until delivery/payment.';
-          previewContent.innerHTML = `<iframe src="${previewView}" style="width:100%;height:100%;border:0;" sandbox="allow-scripts allow-same-origin"></iframe>`;
-
-          // expose current preview URL and show open-in-tab button
-          currentPreviewUrl = previewView;
-          openPreviewTabBtn.style.display = 'inline-block';
-
-          // Best-effort client side blocks while preview is open
-          document.oncontextmenu = (e) => { e.preventDefault(); };
-          document.onkeydown = (e) => {
-            if (e.ctrlKey && ['s','p','c','u','S','P','C','U'].includes(e.key)) {
-              e.preventDefault();
-              return false;
-            }
-          };
-          return;
-        }
-
-        // Fallback: if server returned a direct URL (delivered/admin/writer), open it normally
-        const url = data.url || data.submission_file;
-        if (!url) {
+        const previewUrlCandidate = data.previewUrl || data.url || data.submission_file || data.submission_url;
+        const resolved = resolveUrl(previewUrlCandidate);
+        if (!resolved) {
           previewContent.innerHTML = '<p>No submission available.</p>';
           return;
         }
-        const base = (window.location && window.location.origin && window.location.origin.startsWith('http'))
-          ? window.location.origin
-          : (apiUrl('/') || 'http://localhost:3000');
-        const fullUrl = url.startsWith('http') ? url : (url.startsWith('/') ? `${base}${url}` : `${base}/${url}`);
-        const lower = fullUrl.toLowerCase();
-        const isDelivered = (status && status.toLowerCase().includes('delivered')) || false;
 
-        if (!isDelivered) {
-          previewNotice.textContent = 'Preview only — download and copy disabled until delivery/payment.';
-        } else {
-          previewNotice.textContent = 'Delivered — you may download the file.';
+        // only embed same-origin/apiBase content in iframe for security
+        if (isAllowedEmbed(resolved)) {
+          currentPreviewUrl = resolved;
+          openPreviewTabBtn.style.display = 'inline-block';
+          // show payment button when not delivered and not already paid
+          previewNotice.textContent = (status && String(status).toLowerCase().includes('delivered')) ? 'Delivered — you may download the file.' : 'Preview only — download disabled until delivery/payment.';
+          if (payBtn) {
+            // determine payment visibility from cached object if present
+            const paid = cached && (cached.payment_status === 'paid');
+            const delivered = status && String(status).toLowerCase().includes('delivered');
+            if (!delivered && !paid) {
+              payBtn.style.display = 'inline-block';
+              payBtn.onclick = async () => {
+                const phone = prompt('Enter mobile phone number to pay (e.g. 2547XXXXXXXX):');
+                if (!phone) return alert('Phone number required');
+                let amt = (cached && cached.amount) ? Number(cached.amount) : 0;
+                if (!amt || amt === 0) {
+                  const a = prompt('Enter amount to pay (e.g. 10.00):');
+                  if (!a) return alert('Amount required');
+                  amt = Number(a);
+                }
+                payBtn.disabled = true;
+                previewNotice.textContent = 'Initiating payment...';
+                try {
+                  const resp = await fetch(apiUrl('/api/payments/initiate'), {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ orderId, phoneNumber: phone, amount: amt })
+                  });
+                  const payload = await safeJson(resp) || {};
+                  if (!resp.ok) {
+                    alert(payload.message || 'Failed to initiate payment');
+                    payBtn.disabled = false;
+                    previewNotice.textContent = 'Payment initiation failed.';
+                    return;
+                  }
+                  previewNotice.textContent = 'Payment initiated. Waiting for confirmation...';
+                  // poll for status
+                  const start = Date.now();
+                  const poll = async () => {
+                    try {
+                      const sres = await fetch(apiUrl(`/api/orders/${orderId}/payment-status`));
+                      const sdata = await safeJson(sres) || {};
+                      if (sdata.payment_status === 'paid') {
+                        previewNotice.textContent = 'Payment confirmed — download unlocked.';
+                        payBtn.style.display = 'none';
+                        openPreviewTabBtn.style.display = 'inline-block';
+                        loadProjects();
+                        return;
+                      }
+                      if (Date.now() - start > 60000) {
+                        previewNotice.textContent = 'Payment confirmation timed out. Check later.';
+                        payBtn.disabled = false;
+                        return;
+                      }
+                      setTimeout(poll, 2000);
+                    } catch (e) {
+                      console.error('Poll error', e);
+                      setTimeout(poll, 2000);
+                    }
+                  };
+                  setTimeout(poll, 1500);
+                } catch (e) {
+                  alert('Payment error: ' + (e.message || e));
+                  payBtn.disabled = false;
+                }
+              };
+            } else {
+              payBtn.style.display = 'none';
+            }
+          }
+          const lower = resolved.toLowerCase();
+          if (lower.endsWith('.pdf')) {
+            previewContent.innerHTML = `<iframe src="${resolved}" style="width:100%;height:100%;border:0;" sandbox="allow-same-origin allow-scripts"></iframe>`;
+          } else if (/(jpg|jpeg|png|gif)$/.test(lower)) {
+            previewContent.innerHTML = `<img src="${resolved}" style="max-width:100%;max-height:100%;user-select:none;pointer-events:none;" alt="Submission preview" />`;
+          } else {
+            // for other types attempt iframe; if the server blocks embedding the iframe will fail - user can open in new tab
+            previewContent.innerHTML = `<iframe src="${resolved}" style="width:100%;height:100%;border:0;" sandbox="allow-same-origin"></iframe>`;
+          }
+
+          // temporarily disable right-click and some key combos while preview open
+          onContextMenuHandler = (e) => { e.preventDefault(); };
+          onKeyDownHandler = (e) => {
+            if (e.ctrlKey && ['s','p','c','u','S','P','C','U'].includes(e.key)) { e.preventDefault(); }
+          };
+          document.addEventListener('contextmenu', onContextMenuHandler);
+          document.addEventListener('keydown', onKeyDownHandler);
+          return;
         }
 
-        if (lower.endsWith('.pdf')) {
-          previewContent.innerHTML = `<iframe src="${fullUrl}" style="width:100%;height:100%;border:0;" sandbox="allow-scripts allow-forms"></iframe>`;
-        } else if (/(jpg|jpeg|png|gif)$/.test(lower)) {
-          previewContent.innerHTML = `<img src="${fullUrl}" style="max-width:100%;max-height:100%;user-select:none;pointer-events:none;" />`;
-        } else {
-          previewContent.innerHTML = `<p style="text-align:center">Preview not available for this file type.</p>`;
-        }
+        // not allowed to embed -> show message and allow open in new tab
+        currentPreviewUrl = resolved;
+        previewContent.innerHTML = `<p style="text-align:center">Preview cannot be embedded for this file. Use "Open in new tab".</p>`;
+        openPreviewTabBtn.style.display = 'inline-block';
+        previewNotice.textContent = 'Open in new tab to view the submission.';
       } catch (err) {
-        previewContent.innerHTML = `<p style="color:red">Error: ${err.message || err}</p>`;
+        previewContent.innerHTML = `<p style="color:red">Error: ${escapeHtml(err.message || err)}</p>`;
       }
     }
 
-    // Open preview in a new tab (uses server-provided preview view when available)
-    async function openPreview(orderId) {
+    async function openPreview(orderId, cached) {
       try {
-        const res = await fetch(apiUrl(`/api/submission/${orderId}?userId=${user.id}`));
-        let data = {};
-        try { data = await res.json(); } catch (e) { data = {}; }
-
-        if (!res.ok) {
-          alert(data.message || 'No preview or file available');
-          return;
+        let data = cached || null;
+        if (!data || !data.submission_file && !data.submission_url) {
+          const res = await fetchApi(`/api/submission/${orderId}?userId=${user.id}`);
+          data = await safeJson(res) || {};
+          if (!res.ok) { alert(data.message || 'No preview or file available'); return; }
         }
-
-        if (data.preview && data.previewUrl) {
-          const base = (window.location && window.location.origin && window.location.origin.startsWith('http'))
-            ? window.location.origin
-            : (apiUrl('/') || 'http://localhost:3000');
-          const previewView = data.previewUrl.startsWith('http') ? data.previewUrl : (data.previewUrl.startsWith('/') ? `${base}${data.previewUrl}` : `${base}/${data.previewUrl}`);
-          window.open(previewView, '_blank', 'noopener');
-          return;
-        }
-
-        const url = data.url || data.submission_file;
-        if (url) {
-          const base = (window.location && window.location.origin && window.location.origin.startsWith('http'))
-            ? window.location.origin
-            : (apiUrl('/') || 'http://localhost:3000');
-          const fullUrl = url.startsWith('http') ? url : (url.startsWith('/') ? `${base}${url}` : `${base}/${url}`);
-          window.open(fullUrl, '_blank', 'noopener');
-          return;
-        }
-
-        alert('No preview or file available');
+        const previewUrlCandidate = data.previewUrl || data.url || data.submission_file || data.submission_url;
+        const resolved = resolveUrl(previewUrlCandidate);
+        if (!resolved) { alert('No preview or file available'); return; }
+        window.open(resolved, '_blank', 'noopener');
       } catch (err) {
         alert('Error opening preview: ' + (err.message || err));
       }
     }
+
+    async function deleteProject(orderId) {
+      if (!confirm("Are you sure you want to delete this project? This action cannot be undone.")) return;
+      try {
+        const res = await fetchApi(`/api/orders/${orderId}`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" }
+        });
+        const data = await safeJson(res) || {};
+        if (res.ok) {
+          alert(data.message || '✅ Project deleted successfully!');
+          loadProjects();
+        } else {
+          alert(data.message || `❌ Failed to delete project. (${res.status})`);
+        }
+      } catch (err) {
+        alert('Error: ' + (err.message || err));
+      }
+    }
+
+    // initial load + periodic refresh with cleanup
+    loadProjects();
+    const refreshInterval = setInterval(loadProjects, 10000);
+    window.addEventListener('beforeunload', () => clearInterval(refreshInterval));
   </script>
 </body>
 </html>

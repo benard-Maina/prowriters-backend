@@ -94,8 +94,16 @@
 </head>
 <body>
   <main class="dashboard">
-    <h1>🧾 Admin Dashboard</h1>
-    <button id="logoutBtn" class="logout">Logout</button>
+    <header style="display:flex;justify-content:space-between;align-items:center;">
+      <h1>🧾 Admin Dashboard</h1>
+      <div class="profile" style="position:relative;">
+        <button id="profileBtn" title="Profile" style="width:40px;height:40px;border-radius:50%;border:none;background:#007bff;color:#fff;font-weight:bold;cursor:pointer;">A</button>
+        <div id="profileDropdown" style="display:none;position:absolute;right:0;top:calc(100% + 8px);background:#fff;border:1px solid #ddd;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.08);min-width:160px;z-index:1000;overflow:hidden;">
+          <div id="profileDetailsBtn" style="padding:10px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;">Details</div>
+          <div id="profileLogout" style="padding:10px 12px;cursor:pointer;color:#fff;background:crimson;text-align:center;">Logout</div>
+        </div>
+      </div>
+    </header>
     <p id="info"></p>
 
     <!-- 👥 PENDING APPROVAL USERS -->
@@ -156,6 +164,8 @@
     }
 
     const user = JSON.parse(localStorage.getItem('user'));
+    const token = localStorage.getItem('token');
+    const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
     const apiBase = (window.location && window.location.origin && window.location.origin.startsWith('http'))
       ? window.location.origin
       : 'http://localhost:3000';
@@ -176,14 +186,52 @@
 
     document.getElementById('info').textContent = `Welcome, ${user.name} (${user.role})`;
 
-    document.getElementById('logoutBtn').onclick = () => {
+    // Profile dropdown and logout handling
+    const profileBtn = document.getElementById('profileBtn');
+    if (profileBtn && user && user.name) {
+      const initials = user.name.split(' ').map(n => n && n[0]).filter(Boolean).slice(0,2).join('').toUpperCase();
+      profileBtn.textContent = initials || 'A';
+    }
+    const profileDropdown = document.getElementById('profileDropdown');
+    function closeProfileDropdown() { profileDropdown.style.display = 'none'; }
+
+    profileBtn && profileBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      profileDropdown.style.display = (profileDropdown.style.display === 'block') ? 'none' : 'block';
+    });
+
+    // Close when clicking outside
+    document.addEventListener('click', () => closeProfileDropdown());
+
+    // Details button opens a modal with user info
+    const profileDetailsBtn = document.getElementById('profileDetailsBtn');
+    const profileLogoutBtn = document.getElementById('profileLogout');
+
+    profileDetailsBtn && profileDetailsBtn.addEventListener('click', () => {
+      const modal = document.getElementById('detailsModal');
+      const body = document.getElementById('detailsBody');
+      if (modal && body) {
+        body.innerHTML = `
+          <p><strong>Name:</strong> ${user.name || '—'}</p>
+          <p><strong>Email:</strong> ${user.email || '—'}</p>
+          <p><strong>Role:</strong> ${user.role || '—'}</p>
+          <p><strong>ID:</strong> ${user.id || '—'}</p>
+          <p><strong>Country:</strong> ${user.country || '—'}</p>
+        `;
+        modal.style.display = 'flex';
+      }
+      closeProfileDropdown();
+    });
+
+    // Logout from dropdown
+    profileLogoutBtn && profileLogoutBtn.addEventListener('click', () => {
       localStorage.removeItem('user');
       window.location.href = 'login.html';
-    };
+    });
 
     // 🔹 Load Pending Users
     async function loadPendingUsers() {
-      const res = await fetch('/api/pending-users');
+      const res = await fetch(apiUrl('/api/pending-users'), { headers: { ...authHeaders } });
       const users = await res.json();
       const tbody = document.querySelector('#pendingUsersTable tbody');
       tbody.innerHTML = users.length
@@ -203,7 +251,7 @@
     // ✅ Approve User
     async function approveUser(id) {
       if (!confirm('Approve this user?')) return;
-      const res = await fetch(apiUrl(`/api/approve-user/${id}`), { method: 'POST' });
+      const res = await fetch(apiUrl(`/api/approve-user/${id}`), { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders } });
       const data = await res.json();
       alert(data.message);
       loadPendingUsers();
@@ -213,7 +261,7 @@
     // 🔹 Load Approved Users
     async function loadUsers() {
       try {
-        const res = await fetch('/api/users');
+        const res = await fetch(apiUrl('/api/users'), { headers: { ...authHeaders } });
         const users = await res.json();
         const tbody = document.querySelector('#usersTable tbody');
         tbody.innerHTML = users.length
@@ -237,7 +285,7 @@
     async function deleteUser(id) {
       if (!confirm('Delete this user?')) return;
       try {
-        const res = await fetch(`/api/users/${id}`, { method: 'DELETE' });
+        const res = await fetch(apiUrl(`/api/users/${id}`), { method: 'DELETE', headers: { ...authHeaders } });
         const data = await res.json();
         alert(data.message);
         loadUsers();
@@ -250,7 +298,7 @@
     // 🔹 Load Orders
     async function loadOrders() {
       try {
-        const res = await fetch(apiUrl('/api/orders'));
+        const res = await fetch(apiUrl('/api/orders'), { headers: { ...authHeaders } });
         let orders = [];
         try { orders = await res.json(); } catch (e) { console.error('Failed to parse /api/orders', e); }
         const tbody = document.querySelector('#ordersTable tbody');
@@ -281,6 +329,7 @@
                 <button onclick="assignWriter(${order.id})">Assign Writer</button>
                 <button onclick="markDelivered(${order.id})">Send to Client</button>
                 ${submissionPath ? `<button onclick="previewSubmission(${order.id})">Preview</button>` : ''}
+                <button onclick="editOrder(${order.id})">Edit</button>
                 <button class="delete-btn" onclick="deleteOrder(${order.id})">Delete</button>
               </td>
           `;
@@ -299,8 +348,8 @@
       if (!writerId) return;
       const res = await fetch(apiUrl('/api/assign'), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId, writerId, adminId: user.id })
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        body: JSON.stringify({ orderId, writerId })
       });
       const data = await res.json();
       alert(data.message);
@@ -310,7 +359,7 @@
     // Send to client
     async function markDelivered(orderId) {
       if (!confirm("Deliver this work to client?")) return;
-      const res = await fetch(apiUrl(`/api/send-to-client/${orderId}`), { method: "POST", headers: {'Content-Type':'application/json'}, body: JSON.stringify({ adminId: user.id }) });
+      const res = await fetch(apiUrl(`/api/send-to-client/${orderId}`), { method: "POST", headers: {'Content-Type':'application/json', ...authHeaders} });
       const data = await res.json();
       alert(data.message);
       loadOrders();
@@ -319,7 +368,7 @@
     // Delete order
     async function deleteOrder(id) {
       if (!confirm('Delete this order?')) return;
-      const res = await fetch(`/api/orders/${id}`, { method: 'DELETE' });
+      const res = await fetch(apiUrl(`/api/orders/${id}`), { method: 'DELETE', headers: { ...authHeaders } });
       const data = await res.json();
       alert(data.message);
       loadOrders();
@@ -348,6 +397,48 @@
     loadOrders();
     loadUsers();
   </script>
+  <!-- Details Modal -->
+  <div id="detailsModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); align-items:center; justify-content:center; z-index:9999;">
+    <div style="background:#fff; padding:16px; max-width:420px; width:90%; border-radius:8px; position:relative;">
+      <button id="closeDetails" style="position:absolute; right:12px; top:12px; background:#dc3545;color:#fff;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;">Close</button>
+      <h3 style="margin-top:0;">Profile Details</h3>
+      <div id="detailsBody" style="margin-top:8px; color:#333;"></div>
+    </div>
+  </div>
+
+  <!-- Edit Order Modal -->
+  <div id="editOrderModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); align-items:center; justify-content:center; z-index:10000;">
+    <div style="background:#fff; padding:16px; max-width:560px; width:95%; border-radius:8px; position:relative;">
+      <button id="closeEdit" style="position:absolute; right:12px; top:12px; background:#dc3545;color:#fff;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;">Close</button>
+      <h3 style="margin-top:0;">Edit Order</h3>
+      <form id="editOrderForm">
+        <input type="hidden" id="editOrderId">
+        <label>Title</label>
+        <input id="editTitle" required />
+        <label>Description</label>
+        <textarea id="editDescription" rows="3" required></textarea>
+        <label>Client ID</label>
+        <input id="editClientId" type="number" />
+        <label>Writer ID</label>
+        <input id="editWriterId" type="number" />
+        <label>Status</label>
+        <input id="editStatus" />
+        <label>Amount (KES)</label>
+        <input id="editAmount" type="number" step="0.01" />
+        <label>Payment Status</label>
+        <select id="editPaymentStatus">
+          <option value="unpaid">unpaid</option>
+          <option value="pending">pending</option>
+          <option value="paid">paid</option>
+        </select>
+        <div style="margin-top:12px;display:flex;gap:8px;">
+          <button type="submit" style="flex:1;">Save Changes</button>
+          <button type="button" id="cancelEdit" style="flex:1;background:#6c757d;">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Preview Modal -->
   <div id="previewModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); align-items:center; justify-content:center; z-index:9999;">
     <div id="previewContent" style="background:#fff; padding:16px; max-width:90%; max-height:90%; overflow:auto; border-radius:8px;">
@@ -364,7 +455,7 @@
       modal.style.display = 'flex';
 
       try {
-        const res = await fetch(apiUrl(`/api/submission/${orderId}?userId=${user.id}`));
+        const res = await fetch(apiUrl(`/api/submission/${orderId}`), { headers: { ...authHeaders } });
         let data = {};
         try { data = await res.json(); } catch (e) { data = {}; }
         if (!res.ok) {
@@ -403,6 +494,70 @@
       document.getElementById('previewModal').style.display = 'none';
       document.getElementById('previewBody').innerHTML = '';
     };
+
+    const closeDetails = document.getElementById('closeDetails');
+    if (closeDetails) {
+      closeDetails.onclick = () => {
+        const m = document.getElementById('detailsModal');
+        if (m) m.style.display = 'none';
+        document.getElementById('detailsBody').innerHTML = '';
+      };
+    }
+
+    // ========================== ✏️ Edit Order ==========================
+    function editOrder(orderId) {
+      const modal = document.getElementById('editOrderModal');
+      const idInput = document.getElementById('editOrderId');
+      const title = document.getElementById('editTitle');
+      const desc = document.getElementById('editDescription');
+      const clientInp = document.getElementById('editClientId');
+      const writerInp = document.getElementById('editWriterId');
+      const statusInp = document.getElementById('editStatus');
+      const amountInp = document.getElementById('editAmount');
+      const payStatus = document.getElementById('editPaymentStatus');
+      // fetch order details
+      fetch(apiUrl(`/api/orders`), { headers: { ...authHeaders } }).then(r => r.json()).then(list => {
+        const ord = (list || []).find(o => Number(o.id) === Number(orderId));
+        if (!ord) return alert('Order not found');
+        idInput.value = ord.id;
+        title.value = ord.title || '';
+        desc.value = ord.description || '';
+        clientInp.value = ord.client_id || '';
+        writerInp.value = ord.writer_id || '';
+        statusInp.value = ord.status || '';
+        amountInp.value = ord.amount || '';
+        payStatus.value = ord.payment_status || 'unpaid';
+        modal.style.display = 'flex';
+      }).catch(e => { console.error(e); alert('Failed to load order'); });
+    }
+
+    document.getElementById('closeEdit').addEventListener('click', () => { document.getElementById('editOrderModal').style.display = 'none'; });
+    document.getElementById('cancelEdit').addEventListener('click', () => { document.getElementById('editOrderModal').style.display = 'none'; });
+
+    document.getElementById('editOrderForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('editOrderId').value;
+      const payload = {
+        title: document.getElementById('editTitle').value.trim(),
+        description: document.getElementById('editDescription').value.trim(),
+        client_id: Number(document.getElementById('editClientId').value) || null,
+        writer_id: Number(document.getElementById('editWriterId').value) || null,
+        status: document.getElementById('editStatus').value.trim(),
+        amount: Number(document.getElementById('editAmount').value) || 0,
+        payment_status: document.getElementById('editPaymentStatus').value
+      };
+      try {
+        const res = await fetch(apiUrl(`/api/orders/${id}`), { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders }, body: JSON.stringify(payload) });
+        const data = await res.json();
+        if (!res.ok) return alert(data.message || 'Failed to update order');
+        alert('Order updated');
+        document.getElementById('editOrderModal').style.display = 'none';
+        loadOrders();
+      } catch (err) {
+        console.error(err);
+        alert('Update failed');
+      }
+    });
   </script>
 </body>
 </html>
