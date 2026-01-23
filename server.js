@@ -75,6 +75,9 @@ db.serialize(() => {
       client_id INTEGER,
       writer_id INTEGER,
       status TEXT DEFAULT 'Pending Assignment',
+      submission_date TEXT,
+      expected_ready TEXT,
+      client_guide TEXT,
       submission_file TEXT,
       -- payment fields: status (unpaid/pending/paid), reference and amount
       payment_status TEXT DEFAULT 'unpaid',
@@ -167,14 +170,29 @@ async function createTransporter() {
     });
   }
 
-  // fallback: console logger transporter
-  return {
-    sendMail: async (opts) => {
-      console.log('=== Verification email (not sent via SMTP) ===');
-      console.log(opts);
-      return Promise.resolve();
-    }
-  };
+  // fallback: create an Ethereal test account (so emails are actually sent to Ethereal and can be previewed)
+  try {
+    const testAccount = await nodemailer.createTestAccount();
+    const transporter = nodemailer.createTransport({
+      host: 'smtp.ethereal.email',
+      port: 587,
+      secure: false,
+      auth: { user: testAccount.user, pass: testAccount.pass }
+    });
+    // attach a small marker so callers can detect this is a test transport and retrieve preview URL
+    transporter.__isEthereal = true;
+    transporter.__etherealAccount = { user: testAccount.user };
+    return transporter;
+  } catch (e) {
+    console.error('Failed to create Ethereal test account, falling back to console log. Error:', e && e.message ? e.message : e);
+    return {
+      sendMail: async (opts) => {
+        console.log('=== Verification email (console fallback) ===');
+        console.log(opts);
+        return Promise.resolve();
+      }
+    };
+  }
 }
 
 async function sendVerificationEmail(email, code) {
@@ -182,15 +200,27 @@ async function sendVerificationEmail(email, code) {
   const origin = process.env.APP_ORIGIN || `http://localhost:${PORT}`;
   const text = `Your ProWriter verification code is: ${code}\n\nEnter this code in the app to verify your email.`;
   const html = `<p>Your ProWriter verification code is: <strong>${code}</strong></p><p>Or visit <code>${origin}/login.html</code> and enter the code to verify.</p>`;
-  await transporter.sendMail({
-    from: process.env.EMAIL_FROM || 'no-reply@prowriters.local',
-    to: email,
-    subject: 'ProWriter — Verify your email',
-    text,
-    html
-  }).catch(err => {
+  try {
+    const info = await transporter.sendMail({
+      from: process.env.EMAIL_FROM || 'no-reply@prowriters.local',
+      to: email,
+      subject: 'ProWriter — Verify your email',
+      text,
+      html
+    });
+
+    // If using Ethereal, return the preview URL so callers (devs) can open the message in browser
+    if (transporter.__isEthereal) {
+      const preview = nodemailer.getTestMessageUrl(info);
+      console.log('Ethereal preview URL:', preview);
+      return { ok: true, preview };
+    }
+
+    return { ok: true };
+  } catch (err) {
     console.error('❌ Failed to send verification email:', err && err.message ? err.message : err);
-  });
+    return { ok: false, error: String(err && err.message ? err.message : err) };
+  }
 }
 
 // ===== ROOT & HEALTH =====
@@ -251,10 +281,17 @@ app.post("/api/register", async (req, res) => {
                 console.error('❌ verification insert failed', verErr);
                 return res.status(500).json({ message: "Registration failed (verification)" });
               }
-              // send verification email (best effort)
-              await sendVerificationEmail(emailLower, code);
-              // respond telling client to verify
-              res.json({ message: "Registered. Check your email for a verification code." });
+              // send verification email (best effort). Return preview URL in dev when available
+              const sendResult = await sendVerificationEmail(emailLower, code);
+              const resp = { message: "Registered. Check your email for a verification code." };
+              if (sendResult && sendResult.preview) {
+                resp.preview = sendResult.preview;
+                resp.note = 'preview_url_included_for_development_only';
+              } else if (sendResult && sendResult.ok === false) {
+                // include a gentle note that email sending failed (server-side)
+                resp.note = 'email_send_failed';
+              }
+              return res.json(resp);
             }
           );
         }
@@ -284,8 +321,15 @@ app.post('/api/resend-verification', async (req, res) => {
       [user.id, emailLower, code, expires],
       async (verErr) => {
         if (verErr) return res.status(500).json({ message: 'Failed to create verification code' });
-        await sendVerificationEmail(emailLower, code);
-        res.json({ message: 'Verification code resent' });
+        const sendResult = await sendVerificationEmail(emailLower, code);
+        const resp = { message: 'Verification code resent' };
+        if (sendResult && sendResult.preview) {
+          resp.preview = sendResult.preview;
+          resp.note = 'preview_url_included_for_development_only';
+        } else if (sendResult && sendResult.ok === false) {
+          resp.note = 'email_send_failed';
+        }
+        return res.json(resp);
       }
     );
   });
@@ -354,21 +398,35 @@ app.post("/api/login", (req, res) => {
 // 🧾 ORDER ROUTES
 // ==========================
 
-// Create new order (client)
-app.post("/api/orders", (req, res) => {
-  const { title, description, client_id } = req.body;
-  if (!title || !description || !client_id)
-    return res.status(400).json({ message: "Missing required fields" });
+// Create new order (client) - supports file upload (client guide) via field name 'guide'
+app.post("/api/orders", upload.single('guide'), (req, res) => {
+  // multer will populate req.file (if any) and req.body for text fields
+  try {
+    const title = req.body && String(req.body.title || '').trim();
+    const description = req.body && String(req.body.description || '').trim();
+    const client_id = toInt(req.body && req.body.client_id);
+    const submission_date = req.body && req.body.submission_date ? String(req.body.submission_date) : null;
+    const expected_ready = req.body && req.body.expected_ready ? String(req.body.expected_ready) : null;
 
-  db.run(
-    `INSERT INTO orders (title, description, client_id)
-     VALUES (?, ?, ?)`,
-    [title, description, client_id],
-    function (err) {
-      if (err) return res.status(500).json({ message: "Failed to submit order" });
-      res.json({ message: "Order submitted successfully" });
+    if (!title || (!description && !req.file) || client_id === null) {
+      return res.status(400).json({ message: 'Missing required fields: title, client_id and (description or guide file)' });
     }
-  );
+
+    const clientGuidePath = req.file ? `/uploads/${path.basename(req.file.filename)}` : null;
+
+    db.run(
+      `INSERT INTO orders (title, description, client_id, submission_date, expected_ready, client_guide)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [title, description || '', client_id, submission_date, expected_ready, clientGuidePath],
+      function (err) {
+        if (err) return res.status(500).json({ message: 'Failed to submit order' });
+        res.json({ message: 'Order submitted successfully' });
+      }
+    );
+  } catch (e) {
+    console.error('Order create error', e && e.message ? e.message : e);
+    return res.status(500).json({ message: 'Server error' });
+  }
 });
 
 // Fetch all orders (admin)
@@ -805,7 +863,7 @@ app.delete("/api/orders/:id", authMiddleware, requireAdmin, (req, res) => {
 app.put('/api/orders/:id', authMiddleware, requireAdmin, (req, res) => {
   const id = toInt(req.params && req.params.id);
   if (id === null) return res.status(400).json({ message: 'Invalid id' });
-  const allowed = ['title', 'description', 'client_id', 'writer_id', 'status', 'amount', 'payment_status', 'payment_ref'];
+  const allowed = ['title', 'description', 'client_id', 'writer_id', 'status', 'amount', 'payment_status', 'payment_ref', 'submission_date', 'expected_ready'];
   const updates = [];
   const params = [];
   for (const key of allowed) {
@@ -835,6 +893,9 @@ db.serialize(() => {
     if (!cols.includes('payment_status')) stmts.push("ALTER TABLE orders ADD COLUMN payment_status TEXT DEFAULT 'unpaid'");
     if (!cols.includes('payment_ref')) stmts.push("ALTER TABLE orders ADD COLUMN payment_ref TEXT");
     if (!cols.includes('amount')) stmts.push("ALTER TABLE orders ADD COLUMN amount REAL DEFAULT 0");
+    if (!cols.includes('client_guide')) stmts.push("ALTER TABLE orders ADD COLUMN client_guide TEXT");
+    if (!cols.includes('submission_date')) stmts.push("ALTER TABLE orders ADD COLUMN submission_date TEXT");
+    if (!cols.includes('expected_ready')) stmts.push("ALTER TABLE orders ADD COLUMN expected_ready TEXT");
     stmts.forEach(s => {
       db.run(s, (e) => { if (e) console.error('Failed to add column', e); else console.log('DB migration run:', s); });
     });

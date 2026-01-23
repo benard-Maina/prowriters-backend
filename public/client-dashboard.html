@@ -154,7 +154,16 @@
         <label class="sr-only" for="title">Project Title</label>
         <input type="text" id="title" placeholder="Project Title" required>
         <label class="sr-only" for="description">Project Description</label>
+        <div style="display:flex;gap:12px;align-items:center;margin-top:8px;">
+          <label><input type="radio" name="entryType" id="opt_desc" value="desc" checked> Describe project</label>
+          <label><input type="radio" name="entryType" id="opt_upload" value="upload"> Upload guide</label>
+        </div>
         <textarea id="description" placeholder="Project Description" required></textarea>
+        <input type="file" id="guide" accept=".pdf,.doc,.docx,.txt,.odt" style="display:none"> 
+        <label class="sr-only" for="submission_date">Submission Date</label>
+        <input type="date" id="submission_date" required>
+        <label class="sr-only" for="expected_ready">Expected Ready Date & Time</label>
+        <input type="datetime-local" id="expected_ready" required>
         <button type="submit">Submit Project</button>
       </form>
     </section>
@@ -171,6 +180,8 @@
             <th>ID</th>
             <th>Title</th>
             <th>Description</th>
+            <th>Submitted</th>
+            <th>Expected</th>
             <th>Status</th>
             <th>Writer</th>
             <th>Actions</th>
@@ -212,6 +223,30 @@
     const profileDropdown = document.getElementById('profileDropdown');
     const form = document.getElementById("projectForm");
     const tableBody = document.querySelector("#projectsTable tbody");
+    // default submission date to today for convenience
+    const submissionDateInput = document.getElementById('submission_date');
+    const guideInput = document.getElementById('guide');
+    const optDesc = document.getElementById('opt_desc');
+    const optUpload = document.getElementById('opt_upload');
+    if (submissionDateInput && !submissionDateInput.value) {
+      submissionDateInput.value = new Date().toISOString().slice(0,10);
+    }
+
+    // toggle between description and upload
+    function updateEntryMode() {
+      if (optUpload && optUpload.checked) {
+        document.getElementById('description').disabled = true;
+        document.getElementById('description').required = false;
+        if (guideInput) guideInput.style.display = 'block';
+      } else {
+        document.getElementById('description').disabled = false;
+        document.getElementById('description').required = true;
+        if (guideInput) guideInput.style.display = 'none';
+      }
+    }
+    if (optDesc) optDesc.addEventListener('change', updateEntryMode);
+    if (optUpload) optUpload.addEventListener('change', updateEntryMode);
+    updateEntryMode();
 
     // API base - allow override via window.__API_BASE__ in dev if needed
     const apiBase = (window.__API_BASE__ && String(window.__API_BASE__).trim())
@@ -248,6 +283,23 @@
         const originOk = u.origin === window.location.origin || u.origin === new URL(apiBase).origin;
         return originOk;
       } catch (e) { return false; }
+    }
+    // format helpers for dates
+    function fmtDate(d) {
+      if (!d) return '';
+      try {
+        const dt = new Date(d);
+        if (isNaN(dt)) return String(d);
+        return dt.toLocaleDateString();
+      } catch (e) { return String(d); }
+    }
+    function fmtDateTime(d) {
+      if (!d) return '';
+      try {
+        const dt = new Date(d);
+        if (isNaN(dt)) return String(d);
+        return dt.toLocaleString();
+      } catch (e) { return String(d); }
     }
 
     // auth / role checks
@@ -305,7 +357,7 @@
         tableBody.innerHTML = "";
         const myProjects = Array.isArray(data) ? data.filter(p => p.client_id === user.id) : [];
         if (!myProjects.length) {
-          tableBody.innerHTML = `<tr><td colspan="6" class="noOrders">No projects submitted yet</td></tr>`;
+          tableBody.innerHTML = `<tr><td colspan="8" class="noOrders">No projects submitted yet</td></tr>`;
           return;
         }
         myProjects.forEach(p => {
@@ -314,6 +366,9 @@
           const tdId = document.createElement('td'); tdId.textContent = p.id; tr.appendChild(tdId);
           const tdTitle = document.createElement('td'); tdTitle.textContent = p.title || ''; tr.appendChild(tdTitle);
           const tdDesc = document.createElement('td'); tdDesc.textContent = p.description || ''; tr.appendChild(tdDesc);
+
+          const tdSubmitted = document.createElement('td'); tdSubmitted.textContent = p.submission_date ? fmtDate(p.submission_date) : ''; tr.appendChild(tdSubmitted);
+          const tdExpected = document.createElement('td'); tdExpected.textContent = p.expected_ready ? fmtDateTime(p.expected_ready) : ''; tr.appendChild(tdExpected);
 
           const tdStatus = document.createElement('td');
           const spanStatus = document.createElement('span');
@@ -328,27 +383,48 @@
           const tdActions = document.createElement('td');
 
           if (p.submission_file || p.submission_url) {
-            const previewBtn = document.createElement('button');
-            previewBtn.type = 'button';
-            previewBtn.textContent = 'Preview';
-            previewBtn.addEventListener('click', () => previewSubmission(p.id, p.status, p));
-            tdActions.appendChild(previewBtn);
+            // allow viewing client guide if present
+            if (p.client_guide) {
+              const viewGuideBtn = document.createElement('button');
+              viewGuideBtn.type = 'button';
+              viewGuideBtn.textContent = 'View Guide';
+              viewGuideBtn.style.marginRight = '6px';
+              viewGuideBtn.addEventListener('click', () => {
+                const u = resolveUrl(p.client_guide) || p.client_guide;
+                if (u) window.open(u, '_blank', 'noopener');
+                else alert('Guide not available');
+              });
+              tdActions.appendChild(viewGuideBtn);
+            }
 
-            const openBtn = document.createElement('button');
-            openBtn.type = 'button';
-            openBtn.textContent = 'Open in new tab';
-            openBtn.style.marginLeft = '6px';
-            openBtn.addEventListener('click', () => openPreview(p.id, p));
-            tdActions.appendChild(openBtn);
-
-            // Add Pay button (MPesa) for unpaid, undelivered submissions
-            const payActionBtn = document.createElement('button');
-            payActionBtn.type = 'button';
-            payActionBtn.textContent = 'Pay';
-            payActionBtn.style.marginLeft = '6px';
             const isDelivered = p.status && String(p.status).toLowerCase().includes('delivered');
             const isPaid = p.payment_status && String(p.payment_status).toLowerCase() === 'paid';
-            if (!isDelivered && !isPaid) {
+
+            if (isDelivered || isPaid) {
+              const previewBtn = document.createElement('button');
+              previewBtn.type = 'button';
+              previewBtn.textContent = 'Preview';
+              previewBtn.addEventListener('click', () => previewSubmission(p.id, p.status, p));
+              tdActions.appendChild(previewBtn);
+
+              const openBtn = document.createElement('button');
+              openBtn.type = 'button';
+              openBtn.textContent = 'Open in new tab';
+              openBtn.style.marginLeft = '6px';
+              openBtn.addEventListener('click', () => openPreview(p.id, p));
+              tdActions.appendChild(openBtn);
+            } else {
+              // locked state: show notice and Pay button
+              const locked = document.createElement('span');
+              locked.textContent = 'Locked — pay to view';
+              locked.style.fontWeight = 'bold';
+              locked.style.marginRight = '8px';
+              tdActions.appendChild(locked);
+
+              const payActionBtn = document.createElement('button');
+              payActionBtn.type = 'button';
+              payActionBtn.textContent = 'Pay';
+              payActionBtn.style.marginLeft = '6px';
               payActionBtn.addEventListener('click', async () => {
                 const phone = prompt('Enter mobile phone number to pay (e.g. 2547XXXXXXXX):', '');
                 if (!phone) return alert('Phone number required');
@@ -417,7 +493,7 @@
         });
       } catch (err) {
         console.error("Error loading projects:", err);
-        tableBody.innerHTML = `<tr><td colspan="6" class="noOrders">Failed to load projects.</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="8" class="noOrders">Failed to load projects.</td></tr>`;
       } finally {
         isLoadingProjects = false;
       }
@@ -426,25 +502,52 @@
     // submit new project
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const project = {
-        title: document.getElementById("title").value.trim(),
-        description: document.getElementById("description").value.trim(),
-        client_id: user.id,
-        status: "Pending"
-      };
       try {
-        const res = await fetchApi('/api/orders', {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(project)
-        });
-        const payload = await safeJson(res) || {};
-        if (res.ok) {
+        const title = document.getElementById("title").value.trim();
+        const entryType = document.querySelector('input[name="entryType"]:checked').value;
+        const submissionDateVal = document.getElementById("submission_date").value || new Date().toISOString().slice(0,10);
+        const expectedVal = document.getElementById("expected_ready").value || null;
+
+        let res, payload;
+        // if user chose to upload guide and a file is selected, use FormData
+        if (entryType === 'upload' && guideInput && guideInput.files && guideInput.files.length) {
+          const fd = new FormData();
+          fd.append('title', title);
+          fd.append('description', '');
+          fd.append('client_id', user.id);
+          fd.append('submission_date', submissionDateVal);
+          if (expectedVal) fd.append('expected_ready', expectedVal);
+          fd.append('guide', guideInput.files[0]);
+          res = await fetchApi('/api/orders', {
+            method: 'POST',
+            body: fd
+          });
+          payload = await safeJson(res) || {};
+        } else {
+          const project = {
+            title,
+            description: document.getElementById("description").value.trim(),
+            client_id: user.id,
+            status: "Pending",
+            submission_date: submissionDateVal,
+            expected_ready: expectedVal
+          };
+          res = await fetchApi('/api/orders', {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(project)
+          });
+          payload = await safeJson(res) || {};
+        }
+
+        if (res && res.ok) {
           alert(payload.message || '✅ Project submitted successfully!');
           form.reset();
+          if (submissionDateInput) submissionDateInput.value = new Date().toISOString().slice(0,10);
+          updateEntryMode();
           loadProjects();
         } else {
-          alert(payload.message || `❌ Failed to submit project. (${res.status})`);
+          alert((payload && payload.message) || `❌ Failed to submit project. (${res && res.status})`);
         }
       } catch (err) {
         alert('Error submitting project: ' + (err.message || err));
@@ -522,20 +625,22 @@
 
         // only embed same-origin/apiBase content in iframe for security
         if (isAllowedEmbed(resolved)) {
-          currentPreviewUrl = resolved;
-          openPreviewTabBtn.style.display = 'inline-block';
-          // show payment button when not delivered and not already paid
-          previewNotice.textContent = (status && String(status).toLowerCase().includes('delivered')) ? 'Delivered — you may download the file.' : 'Preview only — download disabled until delivery/payment.';
-          if (payBtn) {
-            // determine payment visibility from cached object if present
-            const paid = cached && (cached.payment_status === 'paid');
-            const delivered = status && String(status).toLowerCase().includes('delivered');
-            if (!delivered && !paid) {
+          const paid = (cached && String(cached.payment_status).toLowerCase() === 'paid') || (data && String(data.payment_status).toLowerCase() === 'paid');
+          const delivered = status && String(status).toLowerCase().includes('delivered');
+
+          // If not paid and not delivered, lock the preview and show pay flow
+          if (!paid && !delivered) {
+            currentPreviewUrl = null;
+            openPreviewTabBtn.style.display = 'none';
+            previewNotice.textContent = 'This submission is locked. Pay to unlock and view the file.';
+            previewContent.innerHTML = '<p style="text-align:center">This submission is locked. Please pay to view the full work.</p>';
+            if (payBtn) {
               payBtn.style.display = 'inline-block';
+              payBtn.disabled = false;
               payBtn.onclick = async () => {
                 const phone = prompt('Enter mobile phone number to pay (e.g. 2547XXXXXXXX):');
                 if (!phone) return alert('Phone number required');
-                let amt = (cached && cached.amount) ? Number(cached.amount) : 0;
+                let amt = (cached && cached.amount) ? Number(cached.amount) : (data && data.amount) ? Number(data.amount) : 0;
                 if (!amt || amt === 0) {
                   const a = prompt('Enter amount to pay (e.g. 10.00):');
                   if (!a) return alert('Amount required');
@@ -586,10 +691,16 @@
                   payBtn.disabled = false;
                 }
               };
-            } else {
-              payBtn.style.display = 'none';
             }
+            return;
           }
+
+          // paid or delivered: allow embedding/opening
+          currentPreviewUrl = resolved;
+          openPreviewTabBtn.style.display = 'inline-block';
+          previewNotice.textContent = delivered ? 'Delivered — you may download the file.' : 'Preview available.';
+          if (payBtn) payBtn.style.display = 'none';
+
           const lower = resolved.toLowerCase();
           if (lower.endsWith('.pdf')) {
             previewContent.innerHTML = `<iframe src="${resolved}" style="width:100%;height:100%;border:0;" sandbox="allow-same-origin allow-scripts"></iframe>`;
@@ -631,6 +742,48 @@
         const previewUrlCandidate = data.previewUrl || data.url || data.submission_file || data.submission_url;
         const resolved = resolveUrl(previewUrlCandidate);
         if (!resolved) { alert('No preview or file available'); return; }
+
+        const paid = data && String(data.payment_status).toLowerCase() === 'paid';
+        const delivered = data && data.status && String(data.status).toLowerCase().includes('delivered');
+        if (!paid && !delivered) {
+          if (!confirm('This submission is locked. Would you like to pay now to unlock it?')) return;
+          const phone = prompt('Enter mobile phone number to pay (e.g. 2547XXXXXXXX):');
+          if (!phone) return alert('Phone number required');
+          let amt = (data && data.amount) ? Number(data.amount) : 0;
+          if (!amt || amt === 0) {
+            const a = prompt('Enter amount to pay (e.g. 10.00):');
+            if (!a) return alert('Amount required');
+            amt = Number(a);
+          }
+          try {
+            const resp = await fetch(apiUrl('/api/payments/initiate'), {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ orderId, phoneNumber: phone, amount: amt })
+            });
+            const payload = await safeJson(resp) || {};
+            if (!resp.ok) { alert(payload.message || 'Failed to initiate payment'); return; }
+            alert('Payment initiated. Follow prompts on your phone.');
+            const start = Date.now();
+            const poll = async () => {
+              try {
+                const sres = await fetch(apiUrl(`/api/orders/${orderId}/payment-status`));
+                const sdata = await safeJson(sres) || {};
+                if (sdata.payment_status === 'paid') {
+                  alert('Payment confirmed — opening file now.');
+                  window.open(resolved, '_blank', 'noopener');
+                  loadProjects();
+                  return;
+                }
+                if (Date.now() - start > 60000) { alert('Payment confirmation timed out. Check later.'); return; }
+                setTimeout(poll, 2000);
+              } catch (e) { console.error('Poll error', e); setTimeout(poll, 2000); }
+            };
+            setTimeout(poll, 1500);
+          } catch (e) { alert('Payment error: ' + (e.message || e)); }
+          return;
+        }
+
+        // already paid or delivered
         window.open(resolved, '_blank', 'noopener');
       } catch (err) {
         alert('Error opening preview: ' + (err.message || err));
