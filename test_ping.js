@@ -1,5 +1,5 @@
 const http = require('http');
-const url = 'http://localhost:3000/api/ping';
+const url = 'https://api.prowriter.me/api/ping';
 http.get(url, (res) => {
   let d = '';
   res.on('data', c => d += c);

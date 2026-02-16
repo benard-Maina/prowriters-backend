@@ -28,17 +28,17 @@ API quickchecks:
 
 ```powershell
 # health
-Invoke-RestMethod -Uri http://localhost:3000/api/ping -Method Get
+Invoke-RestMethod -Uri https://api.prowriter.me/api/ping -Method Get
 
 # register (example)
-Invoke-RestMethod -Uri http://localhost:3000/api/register -Method Post -ContentType 'application/json' -Body (ConvertTo-Json @{name='Test'; email='t@example.com'; password='secret'; role='client'; country='Nowhere'})
+Invoke-RestMethod -Uri https://api.prowriter.me/api/register -Method Post -ContentType 'application/json' -Body (ConvertTo-Json @{name='Test'; email='t@example.com'; password='secret'; role='client'; country='Nowhere'})
 
 # list pending users
-Invoke-RestMethod -Uri http://localhost:3000/api/pending-users -Method Get
+Invoke-RestMethod -Uri https://api.prowriter.me/api/pending-users -Method Get
 
 # approve user (replace <id>)
-Invoke-RestMethod -Uri http://localhost:3000/api/approve-user/<id> -Method Post
+Invoke-RestMethod -Uri https://api.prowriter.me/api/approve-user/<id> -Method Post
 
 # login
-Invoke-RestMethod -Uri http://localhost:3000/api/login -Method Post -ContentType 'application/json' -Body (ConvertTo-Json @{email='t@example.com'; password='secret'})
+Invoke-RestMethod -Uri https://api.prowriter.me/api/login -Method Post -ContentType 'application/json' -Body (ConvertTo-Json @{email='t@example.com'; password='secret'})
 ```

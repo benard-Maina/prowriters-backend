@@ -160,7 +160,7 @@
   <script>
     // If this page was opened via the filesystem (file://), redirect to the server URL
     if (window.location && window.location.protocol === 'file:') {
-      window.location.href = 'http://localhost:3000/admin-dashboard.html';
+      window.location.href = 'https://api.prowriter.me/admin-dashboard.html';
     }
 
     const user = JSON.parse(localStorage.getItem('user'));
@@ -168,7 +168,7 @@
     const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
     const apiBase = (window.location && window.location.origin && window.location.origin.startsWith('http'))
       ? window.location.origin
-      : 'http://localhost:3000';
+      : 'https://api.prowriter.me';
     const apiUrl = (p) => `${apiBase}${p}`;
 
     if (!user) {
@@ -472,7 +472,7 @@
         // Build absolute URL for the resource
         const base = (window.location && window.location.origin && window.location.origin.startsWith('http'))
           ? window.location.origin
-          : (apiBase || 'http://localhost:3000');
+          : (apiBase || 'https://api.prowriter.me');
 
         const fullUrl = url.startsWith('http') ? url : (url.startsWith('/') ? `${base}${url}` : `${base}/${url}`);
         const lower = fullUrl.toLowerCase();

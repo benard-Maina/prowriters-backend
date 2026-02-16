@@ -250,7 +250,7 @@
 
     // API base - allow override via window.__API_BASE__ in dev if needed
     const apiBase = (window.__API_BASE__ && String(window.__API_BASE__).trim())
-      || ((window.location && window.location.origin && window.location.origin.startsWith('http')) ? window.location.origin : 'http://localhost:3000');
+      || ((window.location && window.location.origin && window.location.origin.startsWith('http')) ? window.location.origin : 'https://api.prowriter.me');
     const apiUrl = (path) => `${apiBase}${path}`;
     const storedToken = localStorage.getItem('token');
     // helper to include Authorization header when token available
