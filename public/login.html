@@ -116,15 +116,7 @@
 
       <p id="message" role="status" aria-live="polite"></p>
 
-      <section id="verifySection" style="margin-top:14px;">
-        <h3 style="margin:6px 0 8px 0;font-size:15px;">Have a verification code?</h3>
-        <input type="email" id="verifyEmail" placeholder="Email (same as registration)" />
-        <input type="text" id="verifyCode" placeholder="Enter verification code" />
-        <div style="display:flex;gap:8px;margin-top:8px;">
-          <button id="verifyBtn" style="flex:1;">Verify Code</button>
-          <button id="resendBtn" type="button" style="flex:1;background:#ffc107;color:#000;">Resend Code</button>
-        </div>
-      </section>
+      <!-- Verification flow removed -->
       <p class="links">Don't have an account? <a href="register.html">Register here</a></p>
     </div>
   </main>
@@ -186,62 +178,7 @@
       }
     });
 
-    // Verification handlers
-    const verifyEmailInput = document.getElementById('verifyEmail');
-    const verifyCodeInput = document.getElementById('verifyCode');
-    const verifyBtn = document.getElementById('verifyBtn');
-    const resendBtn = document.getElementById('resendBtn');
-
-    // Prefill verify email when focus on verify email input
-    verifyEmailInput.addEventListener('focus', () => {
-      const e = document.getElementById('email').value.trim();
-      if (e) verifyEmailInput.value = e;
-    });
-
-    verifyBtn.addEventListener('click', async (ev) => {
-      ev.preventDefault();
-      const email = (verifyEmailInput.value || '').trim().toLowerCase();
-      const code = (verifyCodeInput.value || '').trim();
-      if (!email || !code) {
-        message.textContent = 'Please provide email and code.';
-        return;
-      }
-
-      try {
-        message.textContent = 'Verifying...';
-        const verifyApi = (window.location && window.location.origin && window.location.origin.startsWith('http')) ? `${window.location.origin}/api/verify-email` : 'https://api.prowriter.me/api/verify-email';
-        const res = await fetch(verifyApi, {
-          method: 'POST', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ email, code })
-        });
-        const payload = await res.json();
-        if (!res.ok) {
-          message.textContent = payload.message || 'Verification failed.';
-          return;
-        }
-        message.textContent = '✅ Email verified. You can now log in.';
-      } catch (err) {
-        console.error(err);
-        message.textContent = `Error: ${err.message || 'Network error'}`;
-      }
-    });
-
-    resendBtn.addEventListener('click', async (ev) => {
-      ev.preventDefault();
-      const email = (verifyEmailInput.value || document.getElementById('email').value || '').trim().toLowerCase();
-      if (!email) { message.textContent = 'Enter an email to resend code.'; return; }
-      try {
-        message.textContent = 'Resending code...';
-        const resendApi = (window.location && window.location.origin && window.location.origin.startsWith('http')) ? `${window.location.origin}/api/resend-verification` : 'https://api.prowriter.me/api/resend-verification';
-        const res = await fetch(resendApi, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ email }) });
-        const payload = await res.json();
-        if (!res.ok) { message.textContent = payload.message || 'Failed to resend code.'; return; }
-        message.textContent = 'Verification code resent. Check server logs or your email.';
-      } catch (err) {
-        console.error(err);
-        message.textContent = `Error: ${err.message || 'Network error'}`;
-      }
-    });
+    // Verification flow removed from client
   </script>
 </body>
 </html>

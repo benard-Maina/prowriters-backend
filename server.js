@@ -124,19 +124,6 @@ db.serialize(() => {
     )
   `);
 
-  // verification codes for email confirmation
-  db.run(`
-    CREATE TABLE IF NOT EXISTS email_verifications (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER,
-      email TEXT NOT NULL,
-      code TEXT NOT NULL,
-      expires_at INTEGER NOT NULL,
-      used INTEGER DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )
-  `);
 });
 
 // ===== HELPERS =====
@@ -297,38 +284,14 @@ app.post("/api/register", async (req, res) => {
       // hash password
       const hashed = bcrypt.hashSync(password, 10);
 
-      // create user with approved = 0 (must verify)
+      // create user and mark approved immediately (no email verification)
       db.run(
         `INSERT INTO users (name, email, password, role, country, approved)
-         VALUES (?, ?, ?, ?, ?, 0)`,
+         VALUES (?, ?, ?, ?, ?, 1)`,
         [name, emailLower, hashed, userRole, country],
         function (insertErr) {
           if (insertErr) return res.status(500).json({ message: "Registration failed" });
-          const userId = this.lastID;
-          const code = generateCode();
-          const expires = Date.now() + (15 * 60 * 1000); // 15 minutes
-
-          db.run(
-            `INSERT INTO email_verifications (user_id, email, code, expires_at) VALUES (?, ?, ?, ?)`,
-            [userId, emailLower, code, expires],
-            async (verErr) => {
-              if (verErr) {
-                console.error('❌ verification insert failed', verErr);
-                return res.status(500).json({ message: "Registration failed (verification)" });
-              }
-              // send verification email (best effort). Return preview URL in dev when available
-              const sendResult = await sendVerificationEmail(emailLower, code);
-              const resp = { message: "Registered. Check your email for a verification code." };
-              if (sendResult && sendResult.preview) {
-                resp.preview = sendResult.preview;
-                resp.note = 'preview_url_included_for_development_only';
-              } else if (sendResult && sendResult.ok === false) {
-                // include a gentle note that email sending failed (server-side)
-                resp.note = 'email_send_failed';
-              }
-              return res.json(resp);
-            }
-          );
+          return res.json({ message: 'Registered successfully. You may now log in.' });
         }
       );
     });
@@ -339,68 +302,10 @@ app.post("/api/register", async (req, res) => {
 });
 
 // Resend verification code
-app.post('/api/resend-verification', async (req, res) => {
-  const { email } = req.body;
-  if (!email) return res.status(400).json({ message: 'Missing email' });
-  const emailLower = String(email).trim().toLowerCase();
-
-  db.get("SELECT id, approved FROM users WHERE email = ?", [emailLower], async (err, user) => {
-    if (err) return res.status(500).json({ message: 'Server error' });
-    if (!user) return res.status(404).json({ message: 'Email not found' });
-    if (user.approved) return res.status(400).json({ message: 'Email already verified' });
-
-    const code = generateCode();
-    const expires = Date.now() + (15 * 60 * 1000);
-    db.run(
-      `INSERT INTO email_verifications (user_id, email, code, expires_at) VALUES (?, ?, ?, ?)`,
-      [user.id, emailLower, code, expires],
-      async (verErr) => {
-        if (verErr) return res.status(500).json({ message: 'Failed to create verification code' });
-        const sendResult = await sendVerificationEmail(emailLower, code);
-        const resp = { message: 'Verification code resent' };
-        if (sendResult && sendResult.preview) {
-          resp.preview = sendResult.preview;
-          resp.note = 'preview_url_included_for_development_only';
-        } else if (sendResult && sendResult.ok === false) {
-          resp.note = 'email_send_failed';
-        }
-        return res.json(resp);
-      }
-    );
-  });
-});
+// Resend verification removed (verification flow disabled)
 
 // Verify code endpoint
-app.post('/api/verify-email', (req, res) => {
-  const { email, code } = req.body;
-  if (!email || !code) return res.status(400).json({ message: 'Missing email or code' });
-  const emailLower = String(email).trim().toLowerCase();
-
-  db.get(
-    `SELECT v.id as vid, v.user_id, v.code, v.expires_at, v.used, u.approved
-     FROM email_verifications v
-     JOIN users u ON u.id = v.user_id
-     WHERE v.email = ? AND v.used = 0
-     ORDER BY v.created_at DESC
-     LIMIT 1`,
-    [emailLower],
-    (err, row) => {
-      if (err) return res.status(500).json({ message: 'Server error' });
-      if (!row) return res.status(400).json({ message: 'No active verification found' });
-      if (Date.now() > row.expires_at) return res.status(400).json({ message: 'Code expired' });
-      if (String(row.code) !== String(code).trim()) return res.status(400).json({ message: 'Invalid code' });
-
-      // mark verification used and approve user
-      db.run("UPDATE email_verifications SET used = 1 WHERE id = ?", [row.vid], (uErr) => {
-        if (uErr) console.error('❌ failed to mark verification used', uErr);
-        db.run("UPDATE users SET approved = 1 WHERE id = ?", [row.user_id], (upErr) => {
-          if (upErr) return res.status(500).json({ message: 'Failed to verify account' });
-          res.json({ message: 'Email verified. You may now log in.' });
-        });
-      });
-    }
-  );
-});
+// Email verification endpoint removed (verification disabled)
 
 // Login: only allow approved users
 app.post("/api/login", (req, res) => {
@@ -693,8 +598,7 @@ app.post('/api/approve-user/:id', authMiddleware, requireAdmin, (req, res) => {
     if (user.approved) return res.json({ message: 'User already approved' });
     db.run('UPDATE users SET approved = 1 WHERE id = ?', [id], function (uerr) {
       if (uerr) return res.status(500).json({ message: 'Failed to approve user' });
-      // mark any outstanding verification codes as used
-      db.run('UPDATE email_verifications SET used = 1 WHERE user_id = ?', [id], () => {});
+        // verification flow removed; nothing else to mark
       res.json({ message: 'User approved successfully' });
     });
   });
