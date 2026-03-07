@@ -15,6 +15,7 @@ const PORT = 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_jwt_secret_change_me';
 const JWT_EXPIRES = process.env.JWT_EXPIRES || '7d';
 const ADMIN_INVITE_CODE = process.env.ADMIN_INVITE_CODE || '';
+const ADMIN_KEY = process.env.ADMIN_KEY || '';
 
 // ===== MIDDLEWARE =====
 app.use(cors());
@@ -124,6 +125,21 @@ db.serialize(() => {
     )
   `);
 
+    // Activity logs for admin monitoring / audit
+    db.run(`
+      CREATE TABLE IF NOT EXISTS activity_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        actor_id INTEGER,
+        type TEXT NOT NULL,
+        message TEXT,
+        meta TEXT,
+        order_id INTEGER,
+        ip TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
 });
 
 // ===== HELPERS =====
@@ -146,6 +162,29 @@ const toInt = (v) => {
   if (!Number.isFinite(n)) return null;
   return Math.trunc(n);
 };
+
+// Get client IP helper
+function getClientIp(req) {
+  try {
+    const xf = req.headers && (req.headers['x-forwarded-for'] || req.headers['x-forwarded']);
+    if (xf) return String(xf).split(',')[0].trim();
+    if (req.ip) return req.ip;
+    if (req.connection && req.connection.remoteAddress) return req.connection.remoteAddress;
+    return null;
+  } catch (e) { return null; }
+}
+
+// Activity logger helper: stores events in `activity_logs`
+function logActivity({ userId = null, actorId = null, type = 'misc', message = null, meta = null, orderId = null, ip = null }) {
+  try {
+    const metaText = meta ? JSON.stringify(meta) : null;
+    db.run(
+      `INSERT INTO activity_logs (user_id, actor_id, type, message, meta, order_id, ip) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [userId, actorId, type, message, metaText, orderId, ip || null],
+      (err) => { if (err) console.error('Failed to insert activity log', err); }
+    );
+  } catch (e) { console.error('logActivity error', e); }
+}
 
 // JWT helpers
 function getUserFromRequest(req) {
@@ -233,6 +272,8 @@ app.post("/api/register", async (req, res) => {
         [name, emailLower, hashed, userRole, country],
         function (insertErr) {
           if (insertErr) return res.status(500).json({ message: "Registration failed" });
+          // Log activity
+          try { logActivity({ userId: this.lastID, type: 'user.register', message: 'User registered', ip: getClientIp(req) }); } catch(e){}
           return res.json({ message: 'Registered successfully. You may now log in.' });
         }
       );
@@ -260,17 +301,24 @@ app.post("/api/login", (req, res) => {
     [emailLower],
     (err, user) => {
       if (err) return res.status(500).json({ message: "Server error" });
-      if (!user) return res.status(401).json({ message: "Invalid account" });
+      if (!user) {
+        try { logActivity({ type: 'user.login_failed', message: `Failed login for ${emailLower}`, meta: { email: emailLower }, ip: getClientIp(req) }); } catch (e) {}
+        return res.status(401).json({ message: "Invalid account" });
+      }
       if (!user.approved) return res.status(403).json({ message: "Email not verified" });
 
       // compare hashed password
       const match = bcrypt.compareSync(password, user.password);
-      if (!match) return res.status(401).json({ message: "Invalid account" });
+      if (!match) {
+        try { logActivity({ userId: user.id, type: 'user.login_failed', message: 'Invalid password', meta: { email: emailLower }, ip: getClientIp(req) }); } catch (e) {}
+        return res.status(401).json({ message: "Invalid account" });
+      }
 
       // remove password before sending user object and issue JWT
       delete user.password;
       const payload = { id: user.id, role: user.role, email: user.email };
       const token = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES });
+      try { logActivity({ userId: user.id, actorId: user.id, type: 'user.login', message: 'User logged in', ip: getClientIp(req) }); } catch (e) {}
       res.json({ user, token });
     }
   );
@@ -302,7 +350,9 @@ app.post("/api/orders", upload.single('guide'), (req, res) => {
       [title, description || '', client_id, submission_date, expected_ready, clientGuidePath],
       function (err) {
         if (err) return res.status(500).json({ message: 'Failed to submit order' });
-        res.json({ message: 'Order submitted successfully' });
+        // log order creation
+        try { logActivity({ userId: client_id, actorId: client_id, type: 'order.create', message: 'Order created', orderId: this.lastID, ip: getClientIp(req) }); } catch (e) {}
+        res.json({ message: 'Order submitted successfully', orderId: this.lastID });
       }
     );
   } catch (e) {
@@ -388,6 +438,7 @@ app.post("/api/assign", authMiddleware, requireAdmin, (req, res) => {
             [writerId, "In Progress", orderId],
             (err3) => {
               if (err3) return res.status(500).json({ message: "Failed to assign order" });
+              try { logActivity({ userId: writerId, actorId: req.user && req.user.id, type: 'order.assigned', message: 'Order assigned to writer', orderId, ip: getClientIp(req) }); } catch (e) {}
               res.json({ message: "Order assigned successfully" });
             }
           );
@@ -427,6 +478,7 @@ app.post('/api/claim', authMiddleware, (req, res) => {
           [writerId, 'In Progress', orderId],
           (err3) => {
             if (err3) return res.status(500).json({ message: 'Failed to claim order' });
+            try { logActivity({ userId: writerId, actorId: writerId, type: 'order.claimed', message: 'Writer claimed order', orderId, ip: getClientIp(req) }); } catch (e) {}
             res.json({ message: 'Order claimed successfully' });
           }
         );
@@ -462,6 +514,8 @@ app.post("/api/submit-work/:orderId", upload.single("file"), (req, res) => {
     [filePath, orderId],
     function (err) {
       if (err) return res.status(500).json({ message: "Failed to submit work" });
+      const authUser = getUserFromRequest(req);
+      try { logActivity({ actorId: authUser ? toInt(authUser.id) : null, type: 'order.submitted', message: 'Work uploaded for order', orderId, ip: getClientIp(req) }); } catch (e) {}
       // Attempt to generate a PDF preview for non-PDF uploads (so client can read without .docx)
       (async () => {
         try {
@@ -517,6 +571,7 @@ app.post("/api/send-to-client/:orderId", authMiddleware, requireAdmin, (req, res
     [orderId],
     (err2) => {
       if (err2) return res.status(500).json({ message: "Failed to deliver work" });
+      try { logActivity({ actorId: req.user && req.user.id, type: 'order.delivered', message: 'Delivered work to client', orderId, ip: getClientIp(req) }); } catch (e) {}
       res.json({ message: "Work delivered to client successfully" });
     }
   );
@@ -541,7 +596,8 @@ app.post('/api/approve-user/:id', authMiddleware, requireAdmin, (req, res) => {
     db.run('UPDATE users SET approved = 1 WHERE id = ?', [id], function (uerr) {
       if (uerr) return res.status(500).json({ message: 'Failed to approve user' });
         // verification flow removed; nothing else to mark
-      res.json({ message: 'User approved successfully' });
+        try { logActivity({ actorId: req.user && req.user.id, userId: id, type: 'user.approved', message: 'User approved by admin', ip: getClientIp(req) }); } catch (e) {}
+        res.json({ message: 'User approved successfully' });
     });
   });
 });
@@ -831,6 +887,7 @@ function markOrderPaid(orderId, paymentRef, cb) {
       return;
     }
     console.log('Order marked paid:', orderId, paymentRef);
+    try { logActivity({ type: 'order.paid', message: 'Order payment confirmed', orderId, meta: { paymentRef }, ip: null }); } catch (e) {}
     if (cb) cb && cb(null);
   });
 }
@@ -1041,8 +1098,53 @@ app.delete('/api/users/:id', authMiddleware, requireAdmin, (req, res) => {
   if (id === null) return res.status(400).json({ message: 'Invalid id' });
   db.run('DELETE FROM users WHERE id = ?', [id], function (err) {
     if (err) return res.status(500).json({ message: 'Failed to delete user' });
+    try { logActivity({ actorId: req.user && req.user.id, userId: id, type: 'user.deleted', message: 'User deleted by admin', ip: getClientIp(req) }); } catch (e) {}
     res.json({ message: 'User deleted successfully' });
   });
+});
+
+// Admin: fetch activity logs (paginated + optional filters)
+app.get('/api/admin/activity', authMiddleware, requireAdmin, (req, res) => {
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
+  const offset = Math.max(0, Number(req.query.offset) || 0);
+  const type = req.query.type ? String(req.query.type).trim() : null;
+  const userId = req.query.userId ? toInt(req.query.userId) : null;
+  const orderId = req.query.orderId ? toInt(req.query.orderId) : null;
+
+  const where = [];
+  const params = [];
+  if (type) { where.push('type = ?'); params.push(type); }
+  if (userId !== null) { where.push('user_id = ?'); params.push(userId); }
+  if (orderId !== null) { where.push('order_id = ?'); params.push(orderId); }
+
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const q = `SELECT * FROM activity_logs ${whereSql} ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+  params.push(limit, offset);
+  db.all(q, params, (err, rows) => {
+    if (err) return res.status(500).json({ message: 'Failed to fetch activity logs' });
+    res.json(rows || []);
+  });
+});
+
+// Admin: per-user activity timeline
+app.get('/api/admin/activity/user/:id', authMiddleware, requireAdmin, (req, res) => {
+  const id = toInt(req.params && req.params.id);
+  if (id === null) return res.status(400).json({ message: 'Invalid user id' });
+  db.all('SELECT * FROM activity_logs WHERE user_id = ? OR actor_id = ? ORDER BY created_at DESC LIMIT 200', [id, id], (err, rows) => {
+    if (err) return res.status(500).json({ message: 'Failed to fetch user activity' });
+    res.json(rows || []);
+  });
+});
+
+// Debug: list registered routes (temporary)
+app.get('/__routes', (req, res) => {
+  try {
+    const routes = (app._router && app._router.stack || []).filter(r => r && r.route).map(r => {
+      const methods = Object.keys(r.route.methods).join(',').toUpperCase();
+      return { path: r.route.path, methods };
+    });
+    return res.json(routes);
+  } catch (e) { return res.status(500).json({ message: 'Failed to list routes', error: String(e) }); }
 });
 
 // ==========================

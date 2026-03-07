@@ -121,6 +121,24 @@
       </table>
       </div>
     </section>
+    <!-- 📣 ACTIVITY FEED -->
+    <section class="form-section">
+      <h2>Activity Feed</h2>
+      <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
+        <input id="activityType" placeholder="Type (e.g. user.login)" style="width:220px;" />
+        <input id="activityUser" placeholder="User ID" style="width:120px;" />
+        <input id="activityOrder" placeholder="Order ID" style="width:120px;" />
+        <button id="refreshActivity">Refresh</button>
+      </div>
+      <div class="table-responsive">
+      <table id="activityTable">
+        <thead>
+          <tr><th>Time</th><th>Type</th><th>Message</th><th>User</th><th>Actor</th><th>Order</th><th>IP</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      </div>
+    </section>
 
     <!-- ✅ APPROVED USERS -->
     <section class="form-section">
@@ -408,6 +426,48 @@
     loadPendingUsers();
     loadUsers();
     loadOrders();
+
+    // ===== Activity feed =====
+    async function loadActivity() {
+      const type = document.getElementById('activityType').value.trim();
+      const userId = document.getElementById('activityUser').value.trim();
+      const orderId = document.getElementById('activityOrder').value.trim();
+      const params = [];
+      if (type) params.push(`type=${encodeURIComponent(type)}`);
+      if (userId) params.push(`userId=${encodeURIComponent(userId)}`);
+      if (orderId) params.push(`orderId=${encodeURIComponent(orderId)}`);
+      params.push('limit=100');
+      const q = params.length ? `?${params.join('&')}` : '';
+      try {
+        const res = await fetch(apiUrl(`/api/admin/activity${q}`), { headers: { ...authHeaders } });
+        if (!res.ok) {
+          const t = await res.text();
+          throw new Error(t || 'Failed to fetch activity');
+        }
+        const rows = await res.json();
+        const tbody = document.querySelector('#activityTable tbody');
+        tbody.innerHTML = (rows && rows.length) ? rows.map(r=>{
+          const meta = r.meta ? (typeof r.meta === 'string' ? r.meta : JSON.stringify(r.meta)) : '';
+          return `<tr>
+            <td>${r.created_at}</td>
+            <td>${r.type}</td>
+            <td style="max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${(r.message||'')}${meta?(' — '+meta):''}</td>
+            <td>${r.user_id||''}</td>
+            <td>${r.actor_id||''}</td>
+            <td>${r.order_id||''}</td>
+            <td>${r.ip||''}</td>
+          </tr>`;
+        }).join('') : `<tr><td colspan="7" style="text-align:center;color:gray;">No activity</td></tr>`;
+      } catch (e) {
+        console.error('Failed to load activity', e);
+        const tbody = document.querySelector('#activityTable tbody');
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:gray;">Failed to load activity: ${e.message || e}</td></tr>`;
+      }
+    }
+
+    document.getElementById('refreshActivity').addEventListener('click', loadActivity);
+    // auto-refresh on load
+    loadActivity();
 
     // Responsive helper: ensure td elements have data-label attributes for stacked layout
     (function attachTableLabelObserver(){
