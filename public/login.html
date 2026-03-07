@@ -130,6 +130,17 @@
     const form = document.getElementById('loginForm');
     const message = document.getElementById('message');
 
+    // Show role hint when opened with ?role=admin
+    (function(){
+      try {
+        const params = new URLSearchParams(window.location.search || '');
+        const role = params.get('role');
+        if (role === 'admin') {
+          message.textContent = '🔒 Admin login — you'll be taken to the Admin Dashboard after signing in.';
+        }
+      } catch (e) {}
+    })();
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       message.textContent = 'Checking credentials...';
