@@ -101,6 +101,11 @@
 
     /* small focus visible helper */
     input:focus, button:focus { outline: 3px solid rgba(0,123,255,0.12); outline-offset:2px; }
+    @media (max-width: 480px) {
+      input, button { font-size: 16px; padding: 12px; }
+      .login-page { padding: 12px; }
+      .card { padding: 18px; }
+    }
   </style>
 </head>
 <body>

@@ -99,6 +99,11 @@
 
     @media (prefers-reduced-motion: reduce){ *{transition:none!important} }
     input:focus, button:focus { outline: 3px solid rgba(0,123,255,0.12); outline-offset:2px; }
+    @media (max-width: 480px) {
+      input, select, button { font-size: 16px; padding: 12px; }
+      .register-page { padding: 12px; }
+      .card { padding: 18px; }
+    }
   </style>
 </head>
 <body>
@@ -127,7 +132,6 @@
         <label class="sr-only" for="role">Role</label>
         <select id="role" required>
           <option value="">Select role</option>
-          <option value="admin">Admin</option>
           <option value="writer">Writer</option>
           <option value="client">Client</option>
         </select>

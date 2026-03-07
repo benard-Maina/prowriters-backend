@@ -14,6 +14,7 @@ const app = express();
 const PORT = 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_jwt_secret_change_me';
 const JWT_EXPIRES = process.env.JWT_EXPIRES || '7d';
+const ADMIN_INVITE_CODE = process.env.ADMIN_INVITE_CODE || '';
 
 // ===== MIDDLEWARE =====
 app.use(cors());
@@ -205,9 +206,17 @@ app.post("/api/register", async (req, res) => {
       return res.status(400).json({ message: "Email domain is invalid or has no MX records" });
     }
 
-    // validate role
-    const allowedRoles = ['admin', 'writer', 'client'];
-    const userRole = allowedRoles.includes(role) ? role : 'client';
+    // validate role — disallow creating admin accounts from the public register form
+    const allowedRoles = ['writer', 'client'];
+    let userRole = allowedRoles.includes(role) ? role : 'client';
+    // If client attempts to register as admin, require a server-side invite code
+    if (role === 'admin') {
+      const invite = String(req.body && req.body.inviteCode || '').trim();
+      if (!ADMIN_INVITE_CODE || !invite || invite !== ADMIN_INVITE_CODE) {
+        return res.status(403).json({ message: 'Admin registration requires a valid invite code' });
+      }
+      userRole = 'admin';
+    }
 
     // check existing
     db.get("SELECT id FROM users WHERE email = ?", [emailLower], (err, row) => {
@@ -535,6 +544,45 @@ app.post('/api/approve-user/:id', authMiddleware, requireAdmin, (req, res) => {
       res.json({ message: 'User approved successfully' });
     });
   });
+});
+
+// Admin: list all clients with their orders
+app.get('/api/admin/clients-with-orders', authMiddleware, requireAdmin, (req, res) => {
+  db.all(
+    `SELECT u.id as client_id, u.name as client_name, u.email as client_email, u.country as client_country,
+            o.id as order_id, o.title as order_title, o.status as order_status, o.submission_file, o.payment_status
+     FROM users u
+     LEFT JOIN orders o ON o.client_id = u.id
+     WHERE u.role = 'client'
+     ORDER BY u.id DESC, o.created_at DESC`
+    , [], (err, rows) => {
+      if (err) return res.status(500).json({ message: 'Failed to fetch clients' });
+      // Aggregate orders by client
+      const map = new Map();
+      rows.forEach(r => {
+        if (!map.has(r.client_id)) {
+          map.set(r.client_id, {
+            id: r.client_id,
+            name: r.client_name,
+            email: r.client_email,
+            country: r.client_country,
+            orders: []
+          });
+        }
+        if (r.order_id) {
+          map.get(r.client_id).orders.push({
+            id: r.order_id,
+            title: r.order_title,
+            status: r.order_status,
+            submission_file: r.submission_file,
+            payment_status: r.payment_status
+          });
+        }
+      });
+      const clients = Array.from(map.values());
+      res.json(clients);
+    }
+  );
 });
 
 // Submission info endpoint

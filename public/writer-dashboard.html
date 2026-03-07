@@ -243,6 +243,7 @@
     <!-- 🧩 ASSIGNED ORDERS -->
     <section id="assignedOrders">
       <h2>My Assigned Orders</h2>
+      <div class="table-responsive">
       <table id="ordersTable">
         <thead>
           <tr>
@@ -256,6 +257,7 @@
         </thead>
         <tbody></tbody>
       </table>
+      </div>
     </section>
   </main>
 
@@ -358,6 +360,29 @@
 
     // initialize initials
     setProfileInitials();
+
+    // Responsive helper: populate data-label attributes for stacked mobile table layout
+    (function attachTableLabelObserver(){
+      const tables = document.querySelectorAll('.table-responsive table');
+      function applyLabels(table){
+        const headers = Array.from(table.querySelectorAll('thead th')).map(h => h.textContent.trim());
+        table.querySelectorAll('tbody tr').forEach(tr => {
+          Array.from(tr.children).forEach((td, i) => {
+            if (!td.dataset.label) td.dataset.label = headers[i] || '';
+          });
+        });
+      }
+      tables.forEach(t => applyLabels(t));
+      const mo = new MutationObserver((mutations)=>{
+        mutations.forEach(m=>{
+          if (m.addedNodes && m.addedNodes.length) {
+            const table = m.target.closest && m.target.closest('table');
+            if (table) applyLabels(table);
+          }
+        });
+      });
+      tables.forEach(t => mo.observe(t.querySelector('tbody'), { childList: true, subtree: false }));
+    })();
 
     // ========================== 🧾 LOAD AVAILABLE JOBS ==========================
     async function loadAvailableJobs() {
