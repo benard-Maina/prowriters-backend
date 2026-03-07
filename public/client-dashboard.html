@@ -249,9 +249,15 @@
     updateEntryMode();
 
     // API base - allow override via window.__API_BASE__ in dev if needed
-    const apiBase = (window.__API_BASE__ && String(window.__API_BASE__).trim())
-      || ((window.location && window.location.origin && window.location.origin.startsWith('http')) ? window.location.origin : 'https://api.prowriter.me');
-    const apiUrl = (path) => `${apiBase}${path}`;
+    function apiBase() {
+      if (window.__API_BASE__ && String(window.__API_BASE__).trim()) return String(window.__API_BASE__).trim();
+      try {
+        const host = window.location && window.location.hostname;
+        if (host && host.endsWith('prowriter.me')) return 'https://api.prowriter.me';
+        return window.location && window.location.origin ? window.location.origin : 'https://api.prowriter.me';
+      } catch (e) { return 'https://api.prowriter.me'; }
+    }
+    const apiUrl = (path) => `${apiBase()}${path}`;
     const storedToken = localStorage.getItem('token');
     // helper to include Authorization header when token available
     async function fetchApi(path, options) {

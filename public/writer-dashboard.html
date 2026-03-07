@@ -267,11 +267,14 @@
     const tbody = document.querySelector("#ordersTable tbody");
 
     // ✅ Authentication check
-    const apiBase = (window.location && window.location.origin && window.location.origin.startsWith('http'))
-      ? window.location.origin
-      : 'https://api.prowriter.me';
-
-    const apiUrl = (path) => `${apiBase}${path}`;
+    function apiBase() {
+      try {
+        const host = window.location && window.location.hostname;
+        if (host && host.endsWith('prowriter.me')) return 'https://api.prowriter.me';
+        return window.location && window.location.origin ? window.location.origin : 'https://api.prowriter.me';
+      } catch (e) { return 'https://api.prowriter.me'; }
+    }
+    const apiUrl = (path) => `${apiBase()}${path}`;
     const storedToken = localStorage.getItem('token');
     async function fetchApi(path, options) {
       options = options || {};
