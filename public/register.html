@@ -137,6 +137,12 @@
           <option value="admin">Admin</option>
         </select>
 
+        <div id="adminInviteRow" style="display:none;margin-top:6px;">
+          <label class="sr-only" for="inviteCode">Admin invite code</label>
+          <input id="inviteCode" type="text" placeholder="Admin invite code (if you have one)" />
+          <div style="font-size:12px;color:var(--muted);margin-top:6px">If you were given an admin invite code, enter it here. Admin signups may require approval.</div>
+        </div>
+
 
         <button type="submit">Register</button>
       </form>
@@ -162,6 +168,7 @@
       const roleSelect = document.getElementById('role');
       const role = roleSelect.value;
       const country = document.getElementById('country').value.trim();
+      const inviteCode = (document.getElementById('inviteCode') && document.getElementById('inviteCode').value.trim()) || null;
 
       if (!name || !email || !password || !role || !country) {
         message.textContent = 'Please complete all fields.';
@@ -179,6 +186,7 @@
         const apiUrl = `${apiBase()}/api/register`;
 
         const payload = { name, email, password, role, country };
+        if (role === 'admin' && inviteCode) payload.inviteCode = inviteCode;
 
         const res = await fetch(apiUrl, {
           method: 'POST',
@@ -200,7 +208,17 @@
       }
     });
 
-    // No invite-code UI: admin selection is simply chosen from the role select.
+    // Show/hide invite-code input when role changes
+    const adminRow = document.getElementById('adminInviteRow');
+    if (roleSelect) {
+      const toggleInviteRow = (val) => {
+        if (!adminRow) return;
+        if (String(val) === 'admin') adminRow.style.display = 'block';
+        else adminRow.style.display = 'none';
+      };
+      // initialize
+      toggleInviteRow(roleSelect.value);
+      roleSelect.addEventListener('change', (e) => { toggleInviteRow(e.target.value); });
   </script>
 </body>
 </html>
