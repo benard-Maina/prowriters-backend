@@ -129,6 +129,7 @@
         <input id="activityUser" placeholder="User ID" style="width:120px;" />
         <input id="activityOrder" placeholder="Order ID" style="width:120px;" />
         <button id="refreshActivity">Refresh</button>
+        <button id="exportActivity">Export CSV</button>
       </div>
       <div class="table-responsive">
       <table id="activityTable">
@@ -491,6 +492,7 @@
     document.getElementById('refreshActivity').addEventListener('click', loadActivity);
     // auto-refresh on load
     loadActivity();
+    document.getElementById('exportActivity').addEventListener('click', exportActivity);
     
     // ===== Clients & Writers functions =====
     async function loadClients() {
@@ -522,6 +524,53 @@
       document.getElementById('activityUser').value = String(userId);
       loadActivity();
       window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // Show per-user orders in preview modal
+    async function viewOrders(userId) {
+      try {
+        const res = await fetch(apiUrl(`/api/admin/user-orders/${userId}`), { headers: { ...authHeaders } });
+        if (!res.ok) return alert('Failed to load orders');
+        const rows = await res.json();
+        const body = document.getElementById('previewBody');
+        if (!rows || rows.length === 0) {
+          body.innerHTML = '<p>No orders found for this user.</p>';
+        } else {
+          const html = ['<table style="width:100%;border-collapse:collapse"><thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Client</th><th>Writer</th><th>Payment</th></tr></thead><tbody>'];
+          rows.forEach(o => {
+            html.push(`<tr><td>${o.id}</td><td>${o.title}</td><td>${o.status}</td><td>${o.client_name||o.client_id||''}</td><td>${o.writer_name||o.writer_id||''}</td><td>${o.payment_status||''}</td></tr>`);
+          });
+          html.push('</tbody></table>');
+          body.innerHTML = html.join('');
+        }
+        document.getElementById('previewModal').style.display = 'flex';
+      } catch (e) { console.error('Failed to fetch user orders', e); alert('Failed to fetch user orders'); }
+    }
+
+    // Export activity CSV with current filters
+    async function exportActivity() {
+      const type = document.getElementById('activityType').value.trim();
+      const userId = document.getElementById('activityUser').value.trim();
+      const orderId = document.getElementById('activityOrder').value.trim();
+      const params = [];
+      if (type) params.push(`type=${encodeURIComponent(type)}`);
+      if (userId) params.push(`userId=${encodeURIComponent(userId)}`);
+      if (orderId) params.push(`orderId=${encodeURIComponent(orderId)}`);
+      const q = params.length ? `?${params.join('&')}` : '';
+      try {
+        const res = await fetch(apiUrl(`/api/admin/activity/export${q}`), { headers: { ...authHeaders } });
+        if (!res.ok) return alert('Failed to export activity');
+        const text = await res.text();
+        const blob = new Blob([text], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'activity_export.csv';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (e) { console.error('Export failed', e); alert('Export failed'); }
     }
 
     // Load lists on start

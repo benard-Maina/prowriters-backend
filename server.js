@@ -1174,6 +1174,58 @@ app.get('/api/admin/activity/user/:id', authMiddleware, requireAdmin, (req, res)
   });
 });
 
+// Admin: fetch orders related to a user (as client or writer)
+app.get('/api/admin/user-orders/:id', authMiddleware, requireAdmin, (req, res) => {
+  const id = toInt(req.params && req.params.id);
+  if (id === null) return res.status(400).json({ message: 'Invalid user id' });
+  db.all(
+    `SELECT o.*, c.name as client_name, w.name as writer_name
+     FROM orders o
+     LEFT JOIN users c ON o.client_id = c.id
+     LEFT JOIN users w ON o.writer_id = w.id
+     WHERE o.client_id = ? OR o.writer_id = ?
+     ORDER BY o.created_at DESC`,
+    [id, id],
+    (err, rows) => {
+      if (err) return res.status(500).json({ message: 'Failed to fetch orders for user' });
+      res.json(rows || []);
+    }
+  );
+});
+
+// Admin: export activity logs as CSV (filtered)
+app.get('/api/admin/activity/export', authMiddleware, requireAdmin, (req, res) => {
+  const type = req.query.type ? String(req.query.type).trim() : null;
+  const userId = req.query.userId ? toInt(req.query.userId) : null;
+  const orderId = req.query.orderId ? toInt(req.query.orderId) : null;
+  const where = [];
+  const params = [];
+  if (type) { where.push('type = ?'); params.push(type); }
+  if (userId !== null) { where.push('user_id = ?'); params.push(userId); }
+  if (orderId !== null) { where.push('order_id = ?'); params.push(orderId); }
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const q = `SELECT * FROM activity_logs ${whereSql} ORDER BY created_at DESC`;
+  db.all(q, params, (err, rows) => {
+    if (err) return res.status(500).json({ message: 'Failed to fetch activity logs' });
+    // Build CSV
+    const cols = ['created_at','type','message','meta','user_id','actor_id','order_id','ip'];
+    const escape = (v) => {
+      if (v === null || v === undefined) return '';
+      const s = String(v);
+      if (s.includes(',') || s.includes('\n') || s.includes('"')) return '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    };
+    const lines = [cols.join(',')];
+    (rows || []).forEach(r => {
+      lines.push(cols.map(c => escape(r[c])).join(','));
+    });
+    const csv = lines.join('\n');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="activity_export.csv"');
+    return res.send(csv);
+  });
+});
+
 // Debug: list registered routes (temporary)
 app.get('/__routes', (req, res) => {
   try {
