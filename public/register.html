@@ -134,6 +134,7 @@
           <option value="">Select role</option>
           <option value="writer">Writer</option>
           <option value="client">Client</option>
+          <option value="admin">Admin</option>
         </select>
 
         <div id="adminInviteRow" style="display:none;">
@@ -205,24 +206,34 @@
       }
     });
 
-    // Admin link behavior: reveal invite input and set forcedRole so admin registration is only via this link
+    // Admin link behavior: reveal invite input and set forcedRole so admin registration is invite-driven
     window.forcedRole = null;
+    const roleSelect = document.getElementById('role');
+    const adminRow = document.getElementById('adminInviteRow');
+    const inviteInput = document.getElementById('inviteCode');
+
     document.getElementById('adminLink').addEventListener('click', (e) => {
       e.preventDefault();
       window.forcedRole = 'admin';
-      const row = document.getElementById('adminInviteRow');
-      if (row) row.style.display = 'block';
-      const invite = document.getElementById('inviteCode');
-      if (invite) invite.focus();
+      if (roleSelect) roleSelect.value = 'admin';
+      if (adminRow) adminRow.style.display = 'block';
+      if (inviteInput) inviteInput.focus();
     });
 
     // When role select changes, clear forcedRole and toggle invite input visibility
-    document.getElementById('role').addEventListener('change', (e) => {
-      window.forcedRole = null;
-      const row = document.getElementById('adminInviteRow');
-      if (!row) return;
-      row.style.display = 'none';
-    });
+    if (roleSelect) {
+      roleSelect.addEventListener('change', (e) => {
+        // explicit selection clears any previous forced role
+        window.forcedRole = null;
+        if (!adminRow) return;
+        if (e.target.value === 'admin') {
+          adminRow.style.display = 'block';
+          if (inviteInput) inviteInput.focus();
+        } else {
+          adminRow.style.display = 'none';
+        }
+      });
+    }
   </script>
 </body>
 </html>
