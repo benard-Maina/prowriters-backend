@@ -181,6 +181,29 @@
       </table>
       </div>
     </section>
+
+    <!-- 👥 CLIENTS & WRITERS -->
+    <section class="form-section">
+      <h2>Clients & Writers</h2>
+      <div style="display:flex;gap:12px;margin-bottom:12px;">
+        <button onclick="loadClients()">Load Clients</button>
+        <button onclick="loadWriters()">Load Writers</button>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:320px;">
+          <h3>Clients</h3>
+          <div class="table-responsive">
+            <table id="clientsTable"><thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Orders</th><th>Action</th></tr></thead><tbody></tbody></table>
+          </div>
+        </div>
+        <div style="flex:1;min-width:320px;">
+          <h3>Writers</h3>
+          <div class="table-responsive">
+            <table id="writersTable"><thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Orders</th><th>Action</th></tr></thead><tbody></tbody></table>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <script>
@@ -468,6 +491,41 @@
     document.getElementById('refreshActivity').addEventListener('click', loadActivity);
     // auto-refresh on load
     loadActivity();
+    
+    // ===== Clients & Writers functions =====
+    async function loadClients() {
+      try {
+        const res = await fetch(apiUrl('/api/admin/clients-with-orders'), { headers: { ...authHeaders } });
+        const clients = await res.json();
+        const tbody = document.querySelector('#clientsTable tbody');
+        tbody.innerHTML = clients.length ? clients.map(c=>{
+          const orders = (c.orders||[]).map(o=>o.id).join(', ');
+          return `<tr><td>${c.id}</td><td>${c.name}</td><td class="col-email">${c.email}</td><td>${orders||'—'}</td><td><button onclick="viewHistory(${c.id})">History</button></td></tr>`;
+        }).join('') : `<tr><td colspan="5" style="text-align:center;color:gray;">No clients found</td></tr>`;
+      } catch (e) { console.error('Failed to load clients', e); }
+    }
+
+    async function loadWriters() {
+      try {
+        const res = await fetch(apiUrl('/api/admin/writers-with-orders'), { headers: { ...authHeaders } });
+        const writers = await res.json();
+        const tbody = document.querySelector('#writersTable tbody');
+        tbody.innerHTML = writers.length ? writers.map(w=>{
+          const orders = (w.orders||[]).map(o=>o.id).join(', ');
+          return `<tr><td>${w.id}</td><td>${w.name}</td><td class="col-email">${w.email}</td><td>${orders||'—'}</td><td><button onclick="viewHistory(${w.id})">History</button></td></tr>`;
+        }).join('') : `<tr><td colspan="5" style="text-align:center;color:gray;">No writers found</td></tr>`;
+      } catch (e) { console.error('Failed to load writers', e); }
+    }
+
+    // Reuse activity feed to show per-user history
+    function viewHistory(userId) {
+      document.getElementById('activityUser').value = String(userId);
+      loadActivity();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // Load lists on start
+    // defer to user action to avoid extra load; remove auto-load
 
     // Responsive helper: ensure td elements have data-label attributes for stacked layout
     (function attachTableLabelObserver(){

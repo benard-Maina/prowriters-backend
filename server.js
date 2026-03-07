@@ -676,6 +676,44 @@ app.get('/api/submission/:orderId', (req, res) => {
   });
 });
 
+// Admin: list all writers with their orders
+app.get('/api/admin/writers-with-orders', authMiddleware, requireAdmin, (req, res) => {
+  db.all(
+    `SELECT u.id as writer_id, u.name as writer_name, u.email as writer_email, u.country as writer_country,
+            o.id as order_id, o.title as order_title, o.status as order_status, o.submission_file, o.payment_status
+     FROM users u
+     LEFT JOIN orders o ON o.writer_id = u.id
+     WHERE u.role = 'writer'
+     ORDER BY u.id DESC, o.created_at DESC`
+    , [], (err, rows) => {
+      if (err) return res.status(500).json({ message: 'Failed to fetch writers' });
+      const map = new Map();
+      rows.forEach(r => {
+        if (!map.has(r.writer_id)) {
+          map.set(r.writer_id, {
+            id: r.writer_id,
+            name: r.writer_name,
+            email: r.writer_email,
+            country: r.writer_country,
+            orders: []
+          });
+        }
+        if (r.order_id) {
+          map.get(r.writer_id).orders.push({
+            id: r.order_id,
+            title: r.order_title,
+            status: r.order_status,
+            submission_file: r.submission_file,
+            payment_status: r.payment_status
+          });
+        }
+      });
+      const writers = Array.from(map.values());
+      res.json(writers);
+    }
+  );
+});
+
 // Preview endpoint: streams file inline for client previews or returns full file for delivered orders/admins/writers
 app.get('/api/preview/:orderId', (req, res) => {
   const orderId = toInt(req.params && req.params.orderId);
