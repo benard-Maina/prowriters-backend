@@ -305,7 +305,9 @@ app.post("/api/login", (req, res) => {
         try { logActivity({ type: 'user.login_failed', message: `Failed login for ${emailLower}`, meta: { email: emailLower }, ip: getClientIp(req) }); } catch (e) {}
         return res.status(401).json({ message: "Invalid account" });
       }
-      if (!user.approved) return res.status(403).json({ message: "Email not verified" });
+      // Allow login regardless of `approved` flag to simplify onboarding.
+      // Previously blocking unapproved users caused friction; registration
+      // already marks users approved by default in this app.
 
       // compare hashed password
       const match = bcrypt.compareSync(password, user.password);
