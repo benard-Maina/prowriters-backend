@@ -7,7 +7,6 @@ const { exec } = require('child_process');
 const multer = require("multer");
 const cors = require("cors");
 const dns = require('dns').promises;
-const nodemailer = require('nodemailer');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
@@ -178,72 +177,6 @@ function generateCode() {
   return String(Math.floor(100000 + Math.random() * 900000)); // 6-digit
 }
 
-async function createTransporter() {
-  // Prefer environment-provided SMTP credentials
-  const host = process.env.SMTP_HOST;
-  const port = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined;
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-
-  if (host && port && user && pass) {
-    return nodemailer.createTransport({
-      host, port, secure: port === 465,
-      auth: { user, pass }
-    });
-  }
-
-  // fallback: create an Ethereal test account (so emails are actually sent to Ethereal and can be previewed)
-  try {
-    const testAccount = await nodemailer.createTestAccount();
-    const transporter = nodemailer.createTransport({
-      host: 'smtp.ethereal.email',
-      port: 587,
-      secure: false,
-      auth: { user: testAccount.user, pass: testAccount.pass }
-    });
-    // attach a small marker so callers can detect this is a test transport and retrieve preview URL
-    transporter.__isEthereal = true;
-    transporter.__etherealAccount = { user: testAccount.user };
-    return transporter;
-  } catch (e) {
-    console.error('Failed to create Ethereal test account, falling back to console log. Error:', e && e.message ? e.message : e);
-    return {
-      sendMail: async (opts) => {
-        console.log('=== Verification email (console fallback) ===');
-        console.log(opts);
-        return Promise.resolve();
-      }
-    };
-  }
-}
-
-async function sendVerificationEmail(email, code) {
-  const transporter = await createTransporter();
-  const origin = process.env.APP_ORIGIN || `http://localhost:${PORT}`;
-  const text = `Your ProWriter verification code is: ${code}\n\nEnter this code in the app to verify your email.`;
-  const html = `<p>Your ProWriter verification code is: <strong>${code}</strong></p><p>Or visit <code>${origin}/login.html</code> and enter the code to verify.</p>`;
-  try {
-    const info = await transporter.sendMail({
-      from: process.env.EMAIL_FROM || 'no-reply@prowriters.local',
-      to: email,
-      subject: 'ProWriter — Verify your email',
-      text,
-      html
-    });
-
-    // If using Ethereal, return the preview URL so callers (devs) can open the message in browser
-    if (transporter.__isEthereal) {
-      const preview = nodemailer.getTestMessageUrl(info);
-      console.log('Ethereal preview URL:', preview);
-      return { ok: true, preview };
-    }
-
-    return { ok: true };
-  } catch (err) {
-    console.error('❌ Failed to send verification email:', err && err.message ? err.message : err);
-    return { ok: false, error: String(err && err.message ? err.message : err) };
-  }
-}
 
 // ===== ROOT & HEALTH =====
 app.get("/", (_, res) => {

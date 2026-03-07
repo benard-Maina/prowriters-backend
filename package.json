@@ -16,7 +16,6 @@
     "express": "^5.1.0",
     "multer": "^2.0.2",
     "sqlite3": "^5.1.7",
-    "nodemailer": "^6.9.3",
     "bcryptjs": "^2.4.3",
     "jsonwebtoken": "^9.0.0"
   }
