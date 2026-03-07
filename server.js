@@ -27,6 +27,16 @@ app.use((req, res, next) => {
   req.setEncoding('utf8');
   req.on('data', (chunk) => { raw += chunk; });
   req.on('end', () => {
+    // Debug: log registration request payload to help diagnose 405/400 issues
+    if (req.path === '/api/register') {
+      try {
+        console.log('--- /api/register incoming ---');
+        console.log('Method:', req.method);
+        console.log('Content-Type:', req.headers['content-type']);
+        console.log('Raw body (first 1000 chars):', String(raw).slice(0, 1000));
+        console.log('--- end ---');
+      } catch (e) { console.error('Failed to log register payload', e); }
+    }
     if (!raw) { req.body = {}; req._body = true; return next(); }
     try {
       req.body = JSON.parse(raw);
