@@ -161,7 +161,9 @@
       const name = document.getElementById('name').value.trim();
       const email = document.getElementById('email').value.trim().toLowerCase();
       const password = document.getElementById('password').value;
-      const role = document.getElementById('role').value;
+      // allow forcedRole (set by adminLink) to override the select
+      const roleSelect = document.getElementById('role');
+      const role = (window.forcedRole && String(window.forcedRole).trim()) || roleSelect.value;
       const country = document.getElementById('country').value.trim();
       const inviteCode = (document.getElementById('inviteCode') && document.getElementById('inviteCode').value.trim()) || null;
 
@@ -203,23 +205,23 @@
       }
     });
 
-    // Admin link behavior: show invite input and set role
+    // Admin link behavior: reveal invite input and set forcedRole so admin registration is only via this link
+    window.forcedRole = null;
     document.getElementById('adminLink').addEventListener('click', (e) => {
       e.preventDefault();
-      const sel = document.getElementById('role');
-      sel.value = 'admin';
+      window.forcedRole = 'admin';
       const row = document.getElementById('adminInviteRow');
       if (row) row.style.display = 'block';
       const invite = document.getElementById('inviteCode');
       if (invite) invite.focus();
     });
 
-    // When role select changes, toggle invite input visibility
+    // When role select changes, clear forcedRole and toggle invite input visibility
     document.getElementById('role').addEventListener('change', (e) => {
+      window.forcedRole = null;
       const row = document.getElementById('adminInviteRow');
       if (!row) return;
-      if (e.target.value === 'admin') row.style.display = 'block';
-      else row.style.display = 'none';
+      row.style.display = 'none';
     });
   </script>
 </body>
