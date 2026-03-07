@@ -372,8 +372,8 @@
           const tr = document.createElement('tr');
 
           const tdId = document.createElement('td'); tdId.textContent = p.id; tr.appendChild(tdId);
-          const tdTitle = document.createElement('td'); tdTitle.textContent = p.title || ''; tr.appendChild(tdTitle);
-          const tdDesc = document.createElement('td'); tdDesc.textContent = p.description || ''; tr.appendChild(tdDesc);
+          const tdTitle = document.createElement('td'); tdTitle.textContent = p.title || ''; tdTitle.className = 'col-title'; tr.appendChild(tdTitle);
+          const tdDesc = document.createElement('td'); tdDesc.textContent = p.description || ''; tdDesc.className = 'col-desc'; tr.appendChild(tdDesc);
 
           const tdSubmitted = document.createElement('td'); tdSubmitted.textContent = p.submission_date ? fmtDate(p.submission_date) : ''; tr.appendChild(tdSubmitted);
           const tdExpected = document.createElement('td'); tdExpected.textContent = p.expected_ready ? fmtDateTime(p.expected_ready) : ''; tr.appendChild(tdExpected);

@@ -73,9 +73,14 @@ table { width: 100%; border-collapse: collapse; }
 
 /* Improve table handling on narrow screens: keep the header aligned with scroll */
 .table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 8px; margin-bottom: 12px; }
-.table-responsive table { width: 100%; min-width: 680px; border-collapse: collapse; }
-.table-responsive th, .table-responsive td { white-space: nowrap; word-break: normal; }
-.table-responsive thead th { position: relative; }
+.table-responsive table { width: 100%; min-width: 100%; border-collapse: collapse; }
+.table-responsive th, .table-responsive td { white-space: normal; word-break: break-word; }
+.table-responsive thead th { position: sticky; top: 0; background: #007bff; color: #fff; z-index: 3; }
+
+/* Allow specific columns to wrap to avoid horizontal scroll */
+.table-responsive td.col-email,
+.table-responsive td.col-desc,
+.table-responsive td.col-title { max-width: 220px; word-break: break-word; white-space: normal; }
 
 /* If we want stacked view on very small phones, hide the head and present rows as blocks */
 @media (max-width: 520px) {

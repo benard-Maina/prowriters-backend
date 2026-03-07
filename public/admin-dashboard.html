@@ -251,7 +251,7 @@
           <tr>
             <td>${u.id}</td>
             <td>${u.name}</td>
-            <td>${u.email}</td>
+            <td class="col-email">${u.email}</td>
             <td>${u.role}</td>
             <td>${u.country || '—'}</td>
             <td><button class="approve-btn" onclick="approveUser(${u.id})">Approve</button></td>
@@ -281,7 +281,7 @@
             <tr>
               <td>${u.id}</td>
               <td>${u.name}</td>
-              <td>${u.email}</td>
+              <td class="col-email">${u.email}</td>
               <td>${u.role}</td>
               <td>${u.country || '—'}</td>
               <td><button class="delete-btn" onclick="deleteUser(${u.id})">Delete</button></td>
@@ -331,8 +331,8 @@
 
           tr.innerHTML = `
             <td>${order.id}</td>
-            <td>${order.title}</td>
-            <td>${order.description}</td>
+            <td class="col-title">${order.title}</td>
+            <td class="col-desc">${order.description}</td>
             <td>${order.client_name || '—'}</td>
             <td>${order.writer_name || 'Unassigned'}</td>
             <td><span class="status ${statusClass}">${order.status || ''}</span></td>

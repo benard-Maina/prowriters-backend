@@ -469,8 +469,8 @@
           const tr = document.createElement("tr");
           tr.innerHTML = `
             <td>${order.id}</td>
-            <td>${order.title}</td>
-            <td>${order.description}</td>
+            <td class="col-title">${order.title}</td>
+            <td class="col-desc">${order.description}</td>
             <td><span class="status ${statusClass}">${order.status}</span></td>
             <td>
               <form class="uploadForm" data-id="${order.id}" enctype="multipart/form-data">
