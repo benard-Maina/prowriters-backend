@@ -136,11 +136,17 @@
           <option value="client">Client</option>
         </select>
 
+        <div id="adminInviteRow" style="display:none;">
+          <label class="sr-only" for="inviteCode">Admin invite code</label>
+          <input id="inviteCode" type="text" placeholder="Admin invite code (required)" />
+        </div>
+
         <button type="submit">Register</button>
       </form>
 
       <p id="message" role="status" aria-live="polite"></p>
       <p class="links">Already have an account? <a href="login.html">Login here</a></p>
+      <p class="links">Need an admin account? <a href="#" id="adminLink">Request admin registration</a> (requires invite code)</p>
     </div>
   </main>
 
@@ -157,6 +163,7 @@
       const password = document.getElementById('password').value;
       const role = document.getElementById('role').value;
       const country = document.getElementById('country').value.trim();
+      const inviteCode = (document.getElementById('inviteCode') && document.getElementById('inviteCode').value.trim()) || null;
 
       if (!name || !email || !password || !role || !country) {
         message.textContent = 'Please complete all fields.';
@@ -173,10 +180,13 @@
         }
         const apiUrl = `${apiBase()}/api/register`;
 
+        const payload = { name, email, password, role, country };
+        if (role === 'admin' && inviteCode) payload.inviteCode = inviteCode;
+
         const res = await fetch(apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, email, password, role, country })
+          body: JSON.stringify(payload)
         });
 
         const data = await safeJson(res) || {};
@@ -191,6 +201,25 @@
         console.error(err);
         message.textContent = `⚠️ ${err.message || 'Network error'}`;
       }
+    });
+
+    // Admin link behavior: show invite input and set role
+    document.getElementById('adminLink').addEventListener('click', (e) => {
+      e.preventDefault();
+      const sel = document.getElementById('role');
+      sel.value = 'admin';
+      const row = document.getElementById('adminInviteRow');
+      if (row) row.style.display = 'block';
+      const invite = document.getElementById('inviteCode');
+      if (invite) invite.focus();
+    });
+
+    // When role select changes, toggle invite input visibility
+    document.getElementById('role').addEventListener('change', (e) => {
+      const row = document.getElementById('adminInviteRow');
+      if (!row) return;
+      if (e.target.value === 'admin') row.style.display = 'block';
+      else row.style.display = 'none';
     });
   </script>
 </body>
