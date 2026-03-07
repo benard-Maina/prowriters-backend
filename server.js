@@ -18,6 +18,31 @@ const JWT_EXPIRES = process.env.JWT_EXPIRES || '7d';
 
 // ===== MIDDLEWARE =====
 app.use(cors());
+// Safe JSON parser: parse application/json bodies and return JSON errors on parse failure
+app.use((req, res, next) => {
+  const ct = req.headers['content-type'] || '';
+  if (!ct.toLowerCase().includes('application/json')) return next();
+
+  let raw = '';
+  req.setEncoding('utf8');
+  req.on('data', (chunk) => { raw += chunk; });
+  req.on('end', () => {
+    if (!raw) { req.body = {}; req._body = true; return next(); }
+    try {
+      req.body = JSON.parse(raw);
+      req._body = true;
+      return next();
+    } catch (e) {
+      console.error('❌ Invalid JSON received (safe parser):', e && e.message ? e.message : e);
+      return res.status(400).json({ message: 'Invalid JSON in request body' });
+    }
+  });
+  req.on('error', (e) => {
+    console.error('❌ Request stream error:', e && e.message ? e.message : e);
+    return res.status(400).json({ message: 'Invalid request body' });
+  });
+});
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
@@ -1128,6 +1153,12 @@ app.delete('/api/users/:id', authMiddleware, requireAdmin, (req, res) => {
 // ==========================
 // 🚀 START SERVER
 // ==========================
+// Final error handler: return JSON for any uncaught errors
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err && err.stack ? err.stack : err);
+  const status = err && err.status && Number.isFinite(err.status) ? err.status : 500;
+  return res.status(status).json({ message: err && err.message ? err.message : 'Server error' });
+});
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
 });

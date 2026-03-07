@@ -152,10 +152,12 @@
         });
 
         let payload = null;
-        try {
+        const ct = (res.headers && res.headers.get) ? (res.headers.get('content-type') || '') : '';
+        if (!ct.toLowerCase().includes('application/json')) {
+          const text = await res.text().catch(() => null);
+          payload = { message: text || res.statusText || 'Server error' };
+        } else {
           payload = await res.json();
-        } catch (parseErr) {
-          payload = { message: res.statusText || 'Server error' };
         }
 
         if (!res.ok) {
