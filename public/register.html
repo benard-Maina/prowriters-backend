@@ -137,17 +137,13 @@
           <option value="admin">Admin</option>
         </select>
 
-        <div id="adminInviteRow" style="display:none;">
-          <label class="sr-only" for="inviteCode">Admin invite code</label>
-          <input id="inviteCode" type="text" placeholder="Admin invite code (required)" />
-        </div>
 
         <button type="submit">Register</button>
       </form>
 
       <p id="message" role="status" aria-live="polite"></p>
       <p class="links">Already have an account? <a href="login.html">Login here</a></p>
-      <p class="links">Need an admin account? <a href="#" id="adminLink">Request admin registration</a> (requires invite code)</p>
+      <!-- Admin registration no longer uses an invite-code input in the public UI -->
     </div>
   </main>
 
@@ -164,9 +160,8 @@
       const password = document.getElementById('password').value;
       // allow forcedRole (set by adminLink) to override the select
       const roleSelect = document.getElementById('role');
-      const role = (window.forcedRole && String(window.forcedRole).trim()) || roleSelect.value;
+      const role = roleSelect.value;
       const country = document.getElementById('country').value.trim();
-      const inviteCode = (document.getElementById('inviteCode') && document.getElementById('inviteCode').value.trim()) || null;
 
       if (!name || !email || !password || !role || !country) {
         message.textContent = 'Please complete all fields.';
@@ -184,7 +179,6 @@
         const apiUrl = `${apiBase()}/api/register`;
 
         const payload = { name, email, password, role, country };
-        if (role === 'admin' && inviteCode) payload.inviteCode = inviteCode;
 
         const res = await fetch(apiUrl, {
           method: 'POST',
@@ -206,34 +200,7 @@
       }
     });
 
-    // Admin link behavior: reveal invite input and set forcedRole so admin registration is invite-driven
-    window.forcedRole = null;
-    const roleSelect = document.getElementById('role');
-    const adminRow = document.getElementById('adminInviteRow');
-    const inviteInput = document.getElementById('inviteCode');
-
-    document.getElementById('adminLink').addEventListener('click', (e) => {
-      e.preventDefault();
-      window.forcedRole = 'admin';
-      if (roleSelect) roleSelect.value = 'admin';
-      if (adminRow) adminRow.style.display = 'block';
-      if (inviteInput) inviteInput.focus();
-    });
-
-    // When role select changes, clear forcedRole and toggle invite input visibility
-    if (roleSelect) {
-      roleSelect.addEventListener('change', (e) => {
-        // explicit selection clears any previous forced role
-        window.forcedRole = null;
-        if (!adminRow) return;
-        if (e.target.value === 'admin') {
-          adminRow.style.display = 'block';
-          if (inviteInput) inviteInput.focus();
-        } else {
-          adminRow.style.display = 'none';
-        }
-      });
-    }
+    // No invite-code UI: admin selection is simply chosen from the role select.
   </script>
 </body>
 </html>
