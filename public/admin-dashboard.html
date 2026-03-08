@@ -125,7 +125,7 @@
     <!-- 📣 ACTIVITY FEED -->
     <section class="form-section">
       <h2>Activity Feed</h2>
-      <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
+      <div class="toolbar" style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
         <input id="activityType" placeholder="Type (e.g. user.login)" style="width:220px;" />
         <input id="activityUser" placeholder="User ID" style="width:120px;" />
         <input id="activityOrder" placeholder="Order ID" style="width:120px;" />
@@ -187,11 +187,11 @@
     <!-- 👥 CLIENTS & WRITERS -->
     <section class="form-section">
       <h2>Clients & Writers</h2>
-      <div style="display:flex;gap:12px;margin-bottom:12px;">
+      <div class="toolbar" style="display:flex;gap:12px;margin-bottom:12px;">
         <button onclick="loadClients()">Load Clients</button>
         <button onclick="loadWriters()">Load Writers</button>
       </div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <div class="toolbar" style="display:flex;gap:12px;flex-wrap:wrap;">
         <div style="flex:1;min-width:320px;">
           <h3>Clients</h3>
           <div class="table-responsive">

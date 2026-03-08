@@ -133,3 +133,23 @@ iframe, video {
   .site-logo { width: 48px; height: 48px; padding: 4px; }
 }
 
+/* Toolbar helper - used for filter/tool rows to wrap on small screens */
+.toolbar { display: flex; gap: 8px; align-items: center; }
+
+@media (max-width: 760px) {
+  /* Allow the main dashboard to use most of the viewport on small devices */
+  main.dashboard { margin: 12px; padding: 14px; width: auto; }
+
+  /* Make toolbars wrap and make controls full-width for easier tapping */
+  .toolbar { flex-wrap: wrap; }
+  .toolbar > * { flex: 1 1 100%; min-width: 0; }
+
+  /* Move site logo into flow on narrow screens so it doesn't overlap content */
+  .site-logo-link { position: static; display: block; margin: 8px auto; }
+  .site-logo { width: 44px; height: 44px; padding: 4px; }
+}
+
+@media (max-width: 420px) {
+  .toolbar > * { font-size: 15px; padding: 10px; }
+}
+
