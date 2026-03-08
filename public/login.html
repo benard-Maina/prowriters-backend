@@ -149,9 +149,14 @@
       const password = document.getElementById('password').value;
 
       try {
-        // determine API base: prefer same-origin to avoid cross-network hangs
+        // determine API base: use central API in production (api.prowriter.me)
+        // and same-origin in local/dev to avoid CORS issues.
         function apiBase() {
           try {
+            const host = window.location && window.location.hostname;
+            if (host && (host === 'prowriter.me' || host === 'www.prowriter.me' || host.endsWith('.prowriter.me'))) {
+              return 'https://api.prowriter.me';
+            }
             if (window.location && window.location.origin) return window.location.origin;
             return 'https://api.prowriter.me';
           } catch (e) { return 'https://api.prowriter.me'; }
