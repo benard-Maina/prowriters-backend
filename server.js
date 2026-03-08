@@ -224,6 +224,16 @@ app.get("/", (_, res) => {
 });
 app.get('/api/ping', (_, res) => res.json({ message: 'pong' }));
 
+// Public configuration endpoint (safe to expose non-sensitive settings)
+app.get('/api/config', (req, res) => {
+  try {
+    const till = process.env.TILL_NUMBER || '123456';
+    return res.json({ tillNumber: String(till) });
+  } catch (e) {
+    return res.json({ tillNumber: '123456' });
+  }
+});
+
 // ==========================
 // 👤 AUTH / VERIFICATION
 // ==========================

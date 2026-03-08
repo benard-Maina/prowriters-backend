@@ -146,6 +146,7 @@
       </div>
     </header>
     <p id="welcome" aria-live="polite"></p>
+    <p id="tillInfo" style="margin:6px 0 16px;color:#333;">Pay via till number: <strong id="tillNumber">loading…</strong></p>
 
     <!-- ✍️ NEW PROJECT FORM -->
     <section>
@@ -324,6 +325,20 @@
     } else {
       welcome.textContent = `Welcome, ${user.name || 'Client'}`;
     }
+
+    // Load till number for client payments
+    async function loadTillNumber() {
+      try {
+        const res = await fetch(apiUrl('/api/config'));
+        const data = await safeJson(res) || {};
+        const el = document.getElementById('tillNumber');
+        if (el) el.textContent = data.tillNumber || '123456';
+      } catch (e) {
+        const el = document.getElementById('tillNumber');
+        if (el) el.textContent = '123456';
+      }
+    }
+    loadTillNumber();
 
     // profile dropdown + logout handling
     if (profileBtn && user && user.name) {
