@@ -116,3 +116,20 @@ iframe, video {
 /* Improve hero/background handling on very small screens if present */
 .hero { background-size: cover; background-position: center; }
 
+/* Site logo (fixed top-left) */
+.site-logo-link { position: fixed; top: 12px; left: 12px; z-index: 9999; display: block; }
+.site-logo {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #fff;
+  padding: 6px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+  display: block;
+}
+@media (max-width: 480px) {
+  .site-logo-link { top: 8px; left: 8px; }
+  .site-logo { width: 48px; height: 48px; padding: 4px; }
+}
+
