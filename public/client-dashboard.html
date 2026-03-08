@@ -1,7 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
+  <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Client Dashboard | ProWriter Solutions</title>
   <link rel="stylesheet" href="style.css">
   <style>
@@ -134,7 +135,7 @@
   </style>
 </head>
 <body>
-  <a class="site-logo-link" href="index.html" aria-label="ProWriters home"><img src="logo.png" class="site-logo" alt="ProWriters Solutions logo"></a>
+  <a class="site-logo-link" href="index.html" aria-label="ProWriters home"><img src="logo.svg" class="site-logo" alt="ProWriters Solutions logo"></a>
   <main class="dashboard">
     <header style="display:flex;justify-content:space-between;align-items:center;">
       <h1>Client Dashboard</h1>
@@ -284,13 +285,13 @@
         .replace(/'/g, '&#39;');
     }
     function resolveUrl(candidate) {
-      try { return new URL(candidate, apiBase).toString(); } catch(e) { return null; }
+      try { return new URL(candidate, apiBase()).toString(); } catch(e) { return null; }
     }
     function isAllowedEmbed(url) {
       if (!url) return false;
       try {
         const u = new URL(url);
-        const originOk = u.origin === window.location.origin || u.origin === new URL(apiBase).origin;
+        const originOk = u.origin === window.location.origin || u.origin === new URL(apiBase()).origin;
         return originOk;
       } catch (e) { return false; }
     }
