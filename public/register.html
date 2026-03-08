@@ -210,6 +210,7 @@
 
     // Show/hide invite-code input when role changes
     const adminRow = document.getElementById('adminInviteRow');
+    const roleSelect = document.getElementById('role');
     if (roleSelect) {
       const toggleInviteRow = (val) => {
         if (!adminRow) return;
@@ -219,6 +220,7 @@
       // initialize
       toggleInviteRow(roleSelect.value);
       roleSelect.addEventListener('change', (e) => { toggleInviteRow(e.target.value); });
+    }
   </script>
 </body>
 </html>

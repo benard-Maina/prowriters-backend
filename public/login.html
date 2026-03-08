@@ -149,21 +149,35 @@
       const password = document.getElementById('password').value;
 
       try {
-        // determine API base: use api.prowriter.me when on the main site, otherwise use same origin (local dev)
+        // determine API base: prefer same-origin to avoid cross-network hangs
         function apiBase() {
           try {
-            const host = window.location && window.location.hostname;
-            if (host && host.endsWith('prowriter.me')) return 'https://api.prowriter.me';
-            return window.location && window.location.origin ? window.location.origin : 'https://api.prowriter.me';
+            if (window.location && window.location.origin) return window.location.origin;
+            return 'https://api.prowriter.me';
           } catch (e) { return 'https://api.prowriter.me'; }
         }
         const apiUrl = `${apiBase()}/api/login`;
 
-        const res = await fetch(apiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password })
-        });
+        // add a 10s timeout to avoid infinite waits if API is unreachable
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+        let res;
+        try {
+          res = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password }),
+            signal: controller.signal
+          });
+        } catch (fetchErr) {
+          if (fetchErr.name === 'AbortError') {
+            message.textContent = '⚠️ Request timed out. Please check your network.';
+          } else {
+            message.textContent = `⚠️ Network error: ${fetchErr.message || 'Failed to reach server'}`;
+          }
+          clearTimeout(timeout);
+          return;
+        } finally { clearTimeout(timeout); }
 
         let payload = null;
         const ct = (res.headers && res.headers.get) ? (res.headers.get('content-type') || '') : '';

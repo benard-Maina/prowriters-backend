@@ -245,16 +245,26 @@ app.post("/api/register", async (req, res) => {
       return res.status(400).json({ message: "Email domain is invalid or has no MX records" });
     }
 
-    // validate role — disallow creating admin accounts from the public register form
-    const allowedRoles = ['writer', 'client'];
+    // validate role — default to 'client' if unknown
+    const allowedRoles = ['writer', 'client', 'admin'];
     let userRole = allowedRoles.includes(role) ? role : 'client';
-    // If client attempts to register as admin, require a server-side invite code
-    if (role === 'admin') {
+
+    // Admin registration handling:
+    // - If server has ADMIN_INVITE_CODE configured, require the invite code to prevent open admin signup.
+    // - If no ADMIN_INVITE_CODE is set, allow admin signup but mark the account as pending (approved=0)
+    let approvedFlag = 1; // default: immediately approved
+    if (userRole === 'admin') {
       const invite = String(req.body && req.body.inviteCode || '').trim();
-      if (!ADMIN_INVITE_CODE || !invite || invite !== ADMIN_INVITE_CODE) {
-        return res.status(403).json({ message: 'Admin registration requires a valid invite code' });
+      if (ADMIN_INVITE_CODE) {
+        if (!invite || invite !== ADMIN_INVITE_CODE) {
+          return res.status(403).json({ message: 'Admin registration requires a valid invite code' });
+        }
+        // invited admin: still require explicit approval by another admin later for safety
+        approvedFlag = 0;
+      } else {
+        // no invite code configured: accept admin signups but mark as pending approval
+        approvedFlag = 0;
       }
-      userRole = 'admin';
     }
 
     // check existing
@@ -268,12 +278,22 @@ app.post("/api/register", async (req, res) => {
       // create user and mark approved immediately (no email verification)
       db.run(
         `INSERT INTO users (name, email, password, role, country, approved)
-         VALUES (?, ?, ?, ?, ?, 1)`,
-        [name, emailLower, hashed, userRole, country],
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [name, emailLower, hashed, userRole, country, approvedFlag],
         function (insertErr) {
           if (insertErr) return res.status(500).json({ message: "Registration failed" });
           // Log activity
-          try { logActivity({ userId: this.lastID, type: 'user.register', message: 'User registered', ip: getClientIp(req) }); } catch(e){}
+          try {
+            if (userRole === 'admin' && approvedFlag === 0) {
+              logActivity({ userId: this.lastID, type: 'user.register_admin_pending', message: 'Admin registration pending approval', ip: getClientIp(req) });
+            } else {
+              logActivity({ userId: this.lastID, type: 'user.register', message: 'User registered', ip: getClientIp(req) });
+            }
+          } catch(e){}
+
+          if (userRole === 'admin' && approvedFlag === 0) {
+            return res.json({ message: 'Registered successfully. Admin account is pending approval by an administrator.' });
+          }
           return res.json({ message: 'Registered successfully. You may now log in.' });
         }
       );
