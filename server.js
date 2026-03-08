@@ -282,31 +282,46 @@ app.post("/api/register", async (req, res) => {
       if (err) return res.status(500).json({ message: "Server error" });
       if (row) return res.status(409).json({ message: "Email already registered" });
 
-      // hash password
-      const hashed = bcrypt.hashSync(password, 10);
+      // helper to perform the insert
+      function proceedInsert() {
+        // hash password
+        const hashed = bcrypt.hashSync(password, 10);
 
-      // create user and mark approved immediately (no email verification)
-      db.run(
-        `INSERT INTO users (name, email, password, role, country, approved)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [name, emailLower, hashed, userRole, country, approvedFlag],
-        function (insertErr) {
-          if (insertErr) return res.status(500).json({ message: "Registration failed" });
-          // Log activity
-          try {
+        // create user and mark approved according to role handling
+        db.run(
+          `INSERT INTO users (name, email, password, role, country, approved)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [name, emailLower, hashed, userRole, country, approvedFlag],
+          function (insertErr) {
+            if (insertErr) return res.status(500).json({ message: "Registration failed" });
+            // Log activity
+            try {
+              if (userRole === 'admin' && approvedFlag === 0) {
+                logActivity({ userId: this.lastID, type: 'user.register_admin_pending', message: 'Admin registration pending approval', ip: getClientIp(req) });
+              } else {
+                logActivity({ userId: this.lastID, type: 'user.register', message: 'User registered', ip: getClientIp(req) });
+              }
+            } catch(e){}
+
             if (userRole === 'admin' && approvedFlag === 0) {
-              logActivity({ userId: this.lastID, type: 'user.register_admin_pending', message: 'Admin registration pending approval', ip: getClientIp(req) });
-            } else {
-              logActivity({ userId: this.lastID, type: 'user.register', message: 'User registered', ip: getClientIp(req) });
+              return res.json({ message: 'Registered successfully. Admin account is pending approval by an administrator.' });
             }
-          } catch(e){}
-
-          if (userRole === 'admin' && approvedFlag === 0) {
-            return res.json({ message: 'Registered successfully. Admin account is pending approval by an administrator.' });
+            return res.json({ message: 'Registered successfully. You may now log in.' });
           }
-          return res.json({ message: 'Registered successfully. You may now log in.' });
-        }
-      );
+        );
+      }
+
+      // If creating an admin, enforce a maximum of 3 admins
+      if (userRole === 'admin') {
+        db.get("SELECT COUNT(*) as cnt FROM users WHERE role = 'admin'", (cntErr, cntRow) => {
+          if (cntErr) return res.status(500).json({ message: 'Server error' });
+          const current = cntRow && (cntRow.cnt || cntRow.COUNT || cntRow.count) ? Number(cntRow.cnt || cntRow.COUNT || cntRow.count) : 0;
+          if (current >= 3) return res.status(403).json({ message: 'Admin limit reached (maximum 3 admins allowed)' });
+          proceedInsert();
+        });
+      } else {
+        proceedInsert();
+      }
     });
   } catch (err) {
     console.error('Register error:', err);
