@@ -90,6 +90,43 @@
     .approve-btn:hover {
       background: darkgreen;
     }
+    .notification-toolbar {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      flex-wrap:wrap;
+      margin-bottom:10px;
+    }
+    .notification-badge {
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:22px;
+      height:22px;
+      padding:0 8px;
+      border-radius:999px;
+      background:#dc3545;
+      color:#fff;
+      font-size:12px;
+      font-weight:700;
+    }
+    .notification-list { display:grid; gap:8px; }
+    .notification-item {
+      border:1px solid #d8e2f0;
+      border-left:4px solid #adb5bd;
+      background:#fff;
+      border-radius:8px;
+      padding:10px;
+      cursor:pointer;
+    }
+    .notification-item.unread {
+      border-left-color:#007bff;
+      background:#f3f8ff;
+    }
+    .notification-title { font-weight:700; margin-bottom:4px; }
+    .notification-meta { color:#6b7280; font-size:12px; }
+    .notification-empty { color:gray; text-align:center; padding:8px; }
   </style>
 </head>
 <body>
@@ -106,6 +143,17 @@
       </div>
     </header>
     <p id="info"></p>
+
+    <section class="form-section">
+      <div class="notification-toolbar">
+        <h2 style="margin:0;display:flex;align-items:center;gap:8px;">Notifications <span id="notificationBadge" class="notification-badge">0</span></h2>
+        <div style="display:flex;gap:8px;">
+          <button id="refreshNotifications" type="button">Refresh</button>
+          <button id="markAllRead" type="button">Mark all read</button>
+        </div>
+      </div>
+      <div id="notificationList" class="notification-list"></div>
+    </section>
 
     <!-- 👥 PENDING APPROVAL USERS -->
     <section class="form-section">
@@ -219,10 +267,14 @@
     const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
     function apiBase() {
       try {
+        const protocol = window.location && window.location.protocol;
         const host = window.location && window.location.hostname;
+        const origin = window.location && window.location.origin;
+        if (protocol === 'file:') return 'http://localhost:3000';
         if (host && host.endsWith('prowriter.me')) return 'https://api.prowriter.me';
-        return window.location && window.location.origin ? window.location.origin : 'https://api.prowriter.me';
-      } catch (e) { return 'https://api.prowriter.me'; }
+        if (origin && origin !== 'null' && /^https?:\/\//i.test(origin)) return origin;
+        return 'http://localhost:3000';
+      } catch (e) { return 'http://localhost:3000'; }
     }
     const apiUrl = (p) => `${apiBase()}${p}`;
 
@@ -350,6 +402,68 @@
       }
     }
 
+    function escapeHtml(text) {
+      return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    async function loadNotifications() {
+      try {
+        const res = await fetch(apiUrl('/api/notifications?limit=20'), { headers: { ...authHeaders } });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'Failed to load notifications');
+        const rows = Array.isArray(data.notifications) ? data.notifications : [];
+        const badge = document.getElementById('notificationBadge');
+        const list = document.getElementById('notificationList');
+        if (badge) badge.textContent = String(Number(data.unreadCount || 0));
+        if (!list) return;
+        if (!rows.length) {
+          list.innerHTML = '<div class="notification-empty">No notifications yet.</div>';
+          return;
+        }
+        list.innerHTML = rows.map(n => `
+          <div class="notification-item ${Number(n.is_read) ? '' : 'unread'}" data-id="${n.id}" data-order="${n.order_id || ''}">
+            <div class="notification-title">${escapeHtml(n.title)}</div>
+            <div>${escapeHtml(n.message)}</div>
+            <div class="notification-meta">${escapeHtml(n.created_at || '')}${n.actor_name ? ` • ${escapeHtml(n.actor_name)}` : ''}${n.order_id ? ` • Order #${n.order_id}` : ''}</div>
+          </div>
+        `).join('');
+        list.querySelectorAll('.notification-item').forEach(item => {
+          item.addEventListener('click', async () => {
+            const id = item.getAttribute('data-id');
+            const orderId = item.getAttribute('data-order');
+            try {
+              await fetch(apiUrl(`/api/notifications/${id}/read`), { method: 'POST', headers: { ...authHeaders } });
+              if (orderId) {
+                const orderInput = document.getElementById('activityOrder');
+                if (orderInput) orderInput.value = String(orderId);
+                loadActivity();
+              }
+            } catch (e) {}
+            loadNotifications();
+          });
+        });
+      } catch (err) {
+        const list = document.getElementById('notificationList');
+        if (list) list.innerHTML = `<div class="notification-empty">${escapeHtml(err.message || 'Failed to load notifications')}</div>`;
+      }
+    }
+
+    async function markAllNotificationsRead() {
+      try {
+        const res = await fetch(apiUrl('/api/notifications/read-all'), { method: 'POST', headers: { ...authHeaders } });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'Failed to update notifications');
+        loadNotifications();
+      } catch (err) {
+        alert(err.message || 'Failed to update notifications');
+      }
+    }
+
     // 🔹 Load Orders
     async function loadOrders() {
       try {
@@ -369,7 +483,7 @@
           const tr = document.createElement('tr');
           const submissionPath = order.submission_file || order.submission_path || order.submission || '';
           const submissionHtml = submissionPath
-            ? `<a href="${submissionPath}" target="_blank" class="submission-link">View File</a>`
+            ? `<button type="button" class="submission-link" onclick="previewSubmission(${order.id})">View File</button>`
             : 'No Submission';
 
           tr.innerHTML = `
@@ -450,6 +564,7 @@
     // Load all on start
     loadPendingUsers();
     loadUsers();
+    loadNotifications();
     loadOrders();
 
     // ===== Activity feed =====
@@ -491,8 +606,12 @@
     }
 
     document.getElementById('refreshActivity').addEventListener('click', loadActivity);
+    document.getElementById('refreshNotifications').addEventListener('click', loadNotifications);
+    document.getElementById('markAllRead').addEventListener('click', markAllNotificationsRead);
     // auto-refresh on load
     loadActivity();
+    const notificationTimer = setInterval(loadNotifications, 15000);
+    window.addEventListener('beforeunload', () => clearInterval(notificationTimer));
     document.getElementById('exportActivity').addEventListener('click', exportActivity);
     
     // ===== Clients & Writers functions =====
@@ -601,6 +720,7 @@
     })();
     loadOrders();
     loadUsers();
+    loadNotifications();
   </script>
   <!-- Details Modal -->
   <div id="detailsModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); align-items:center; justify-content:center; z-index:9999;">
@@ -668,7 +788,7 @@
           return;
         }
 
-        const url = data.url || data.submission_file;
+        const url = data.previewUrl || data.url || data.submission_file;
         if (!url) {
           body.innerHTML = '<p>No submission available.</p>';
           return;

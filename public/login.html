@@ -124,6 +124,7 @@
 
       <!-- Verification flow removed -->
       <p class="links">Don't have an account? <a href="register.html">Register here</a></p>
+      <p class="links">Need help? Call or WhatsApp 0750715398 / 0781502599 / 0790097878</p>
     </div>
   </main>
 
@@ -154,13 +155,16 @@
         // and same-origin in local/dev to avoid CORS issues.
         function apiBase() {
           try {
+            const protocol = window.location && window.location.protocol;
             const host = window.location && window.location.hostname;
+            const origin = window.location && window.location.origin;
+            if (protocol === 'file:') return 'http://localhost:3000';
             if (host && (host === 'prowriter.me' || host === 'www.prowriter.me' || host.endsWith('.prowriter.me'))) {
               return 'https://api.prowriter.me';
             }
-            if (window.location && window.location.origin) return window.location.origin;
-            return 'https://api.prowriter.me';
-          } catch (e) { return 'https://api.prowriter.me'; }
+            if (origin && origin !== 'null' && /^https?:\/\//i.test(origin)) return origin;
+            return 'http://localhost:3000';
+          } catch (e) { return 'http://localhost:3000'; }
         }
         const apiUrl = `${apiBase()}/api/login`;
 

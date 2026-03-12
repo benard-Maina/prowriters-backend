@@ -9,6 +9,7 @@ const cors = require("cors");
 const dns = require('dns').promises;
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const nodemailer = require('nodemailer');
 
 const app = express();
 const PORT = 3000;
@@ -16,6 +17,13 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev_jwt_secret_change_me';
 const JWT_EXPIRES = process.env.JWT_EXPIRES || '7d';
 const ADMIN_INVITE_CODE = process.env.ADMIN_INVITE_CODE || '';
 const ADMIN_KEY = process.env.ADMIN_KEY || '';
+const SMTP_HOST = process.env.SMTP_HOST || '';
+const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
+const SMTP_USER = process.env.SMTP_USER || '';
+const SMTP_PASS = process.env.SMTP_PASS || '';
+const SMTP_SECURE = String(process.env.SMTP_SECURE || 'false').toLowerCase() === 'true';
+const SMTP_FROM = process.env.SMTP_FROM || process.env.ADMIN_VERIFICATION_EMAIL_FROM || '';
+const ADMIN_VERIFICATION_NOTIFY_EMAILS = process.env.ADMIN_VERIFICATION_NOTIFY_EMAILS || '';
 
 // ===== MIDDLEWARE =====
 app.use(cors());
@@ -140,6 +148,23 @@ db.serialize(() => {
       )
     `);
 
+    db.run(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        recipient_user_id INTEGER NOT NULL,
+        actor_user_id INTEGER,
+        order_id INTEGER,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        message TEXT NOT NULL,
+        is_read INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (recipient_user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE SET NULL,
+        FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+      )
+    `);
+
 });
 
 // ===== HELPERS =====
@@ -186,6 +211,89 @@ function logActivity({ userId = null, actorId = null, type = 'misc', message = n
   } catch (e) { console.error('logActivity error', e); }
 }
 
+function createNotification({ recipientUserId, actorUserId = null, orderId = null, type = 'general', title = 'Notification', message = '' }) {
+  const recipientId = toInt(recipientUserId);
+  if (recipientId === null || !title || !message) return;
+  db.run(
+    `INSERT INTO notifications (recipient_user_id, actor_user_id, order_id, type, title, message)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [recipientId, toInt(actorUserId), toInt(orderId), String(type), String(title), String(message)],
+    (err) => {
+      if (err) console.error('Failed to insert notification', err);
+    }
+  );
+}
+
+function notifyUsers(userIds, payload) {
+  const ids = [...new Set((userIds || []).map(toInt).filter((id) => id !== null))];
+  ids.forEach((id) => createNotification({ recipientUserId: id, ...payload }));
+}
+
+function notifyAdmins(payload) {
+  db.all(`SELECT id FROM users WHERE role = 'admin' AND approved = 1`, [], (err, rows) => {
+    if (err) {
+      console.error('Failed to load admins for notifications', err);
+      return;
+    }
+    notifyUsers((rows || []).map((row) => row.id), payload);
+  });
+}
+
+let mailTransporter = null;
+function getMailTransporter() {
+  if (mailTransporter) return mailTransporter;
+  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS || !SMTP_FROM) return null;
+  mailTransporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_SECURE,
+    auth: { user: SMTP_USER, pass: SMTP_PASS }
+  });
+  return mailTransporter;
+}
+
+function sendAdminVerificationRequestEmail({ userId, name, email, country }) {
+  const transporter = getMailTransporter();
+  if (!transporter) {
+    console.log('ℹ️ SMTP not configured. Skipping admin verification email.');
+    return;
+  }
+
+  const recipients = Array.from(new Set(
+    String(ADMIN_VERIFICATION_NOTIFY_EMAILS || '')
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean)
+  ));
+
+  if (!recipients.length) {
+    console.log('ℹ️ No recipients configured for admin verification email.');
+    return;
+  }
+
+  const subject = `Admin verification required: ${name || email}`;
+  const text = [
+    'A new admin account registration needs verification/approval.',
+    `User ID: ${userId}`,
+    `Name: ${name || 'N/A'}`,
+    `Email: ${email || 'N/A'}`,
+    `Country: ${country || 'N/A'}`,
+    '',
+    'Sign in to the admin dashboard to review pending approvals.'
+  ].join('\n');
+
+  transporter.sendMail({
+    from: SMTP_FROM,
+    to: recipients.join(','),
+    subject,
+    text
+  }).then(() => {
+    console.log('✅ Admin verification email sent');
+  }).catch((mailErr) => {
+    console.error('❌ Failed to send admin verification email:', mailErr && mailErr.message ? mailErr.message : mailErr);
+  });
+}
+
 // JWT helpers
 function getUserFromRequest(req) {
   try {
@@ -196,6 +304,17 @@ function getUserFromRequest(req) {
     if (!token) return null;
     const decoded = jwt.verify(token, JWT_SECRET);
     return decoded || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function getRawTokenFromRequest(req) {
+  try {
+    const auth = (req.headers && req.headers.authorization) || '';
+    if (auth && auth.startsWith('Bearer ')) return auth.slice(7);
+    if (req.query && req.query.userToken) return String(req.query.userToken);
+    return null;
   } catch (e) {
     return null;
   }
@@ -298,6 +417,7 @@ app.post("/api/register", async (req, res) => {
             try {
               if (userRole === 'admin' && approvedFlag === 0) {
                 logActivity({ userId: this.lastID, type: 'user.register_admin_pending', message: 'Admin registration pending approval', ip: getClientIp(req) });
+                sendAdminVerificationRequestEmail({ userId: this.lastID, name, email: emailLower, country });
               } else {
                 logActivity({ userId: this.lastID, type: 'user.register', message: 'User registered', ip: getClientIp(req) });
               }
@@ -399,6 +519,13 @@ app.post("/api/orders", upload.single('guide'), (req, res) => {
         if (err) return res.status(500).json({ message: 'Failed to submit order' });
         // log order creation
         try { logActivity({ userId: client_id, actorId: client_id, type: 'order.create', message: 'Order created', orderId: this.lastID, ip: getClientIp(req) }); } catch (e) {}
+        notifyAdmins({
+          actorUserId: client_id,
+          orderId: this.lastID,
+          type: 'order.created.admin',
+          title: 'New job submitted',
+          message: `Order #${this.lastID} (${title}) was submitted and is waiting for admin review.`
+        });
         res.json({ message: 'Order submitted successfully', orderId: this.lastID });
       }
     );
@@ -486,6 +613,14 @@ app.post("/api/assign", authMiddleware, requireAdmin, (req, res) => {
             (err3) => {
               if (err3) return res.status(500).json({ message: "Failed to assign order" });
               try { logActivity({ userId: writerId, actorId: req.user && req.user.id, type: 'order.assigned', message: 'Order assigned to writer', orderId, ip: getClientIp(req) }); } catch (e) {}
+              createNotification({
+                recipientUserId: writerId,
+                actorUserId: req.user && req.user.id,
+                orderId,
+                type: 'order.assigned.writer',
+                title: 'New assigned job',
+                message: `Order #${orderId} has been assigned to you.`
+              });
               res.json({ message: "Order assigned successfully" });
             }
           );
@@ -550,62 +685,75 @@ app.post("/api/update-status", (req, res) => {
 });
 
 // Writer uploads completed work
-app.post("/api/submit-work/:orderId", upload.single("file"), (req, res) => {
+app.post("/api/submit-work/:orderId", authMiddleware, upload.single("file"), (req, res) => {
   const orderId = toInt(req.params && req.params.orderId);
   if (orderId === null) return res.status(400).json({ message: 'Invalid order id' });
   if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
   const safeFilename = path.basename(req.file.filename);
   const filePath = `/uploads/${safeFilename}`;
-  db.run(
-    "UPDATE orders SET submission_file = ?, status = 'Submitted' WHERE id = ?",
-    [filePath, orderId],
-    function (err) {
-      if (err) return res.status(500).json({ message: "Failed to submit work" });
-      const authUser = getUserFromRequest(req);
-      try { logActivity({ actorId: authUser ? toInt(authUser.id) : null, type: 'order.submitted', message: 'Work uploaded for order', orderId, ip: getClientIp(req) }); } catch (e) {}
-      // Attempt to generate a PDF preview for non-PDF uploads (so client can read without .docx)
-      (async () => {
-        try {
-          const localFile = path.join(uploadDir, safeFilename);
-          const ext = path.extname(safeFilename).toLowerCase();
-          const previewTarget = path.join(previewDir, `${orderId}.pdf`);
-
-          // If upload already a PDF, copy to previews as orderId.pdf
-          if (ext === '.pdf') {
-            fs.copyFileSync(localFile, previewTarget);
-            console.log('✅ PDF preview saved for order', orderId);
-          } else if (['.doc', '.docx', '.odt', '.rtf', '.ppt', '.pptx'].includes(ext)) {
-            // Convert using soffice (LibreOffice). If soffice not installed, log error.
-            const cmd = `soffice --headless --convert-to pdf --outdir "${previewDir}" "${localFile}"`;
-            exec(cmd, (convErr) => {
-              if (convErr) {
-                console.error('❌ PDF conversion failed:', convErr.message);
-                return;
-              }
-              const base = path.basename(req.file.filename, ext);
-              const produced = path.join(previewDir, `${base}.pdf`);
-              if (fs.existsSync(produced)) {
-                try {
-                  fs.renameSync(produced, previewTarget);
-                  console.log('✅ Converted and saved preview for order', orderId);
-                } catch (renameErr) {
-                  console.error('❌ Failed to rename produced pdf:', renameErr.message);
-                }
-              } else {
-                console.error('❌ Expected produced PDF not found:', produced);
-              }
-            });
-          } else {
-            console.log('ℹ️ Uploaded file type not converted to PDF:', ext);
-          }
-        } catch (e) {
-          console.error('❌ Error while generating preview:', e.message || e);
-        }
-      })();
-
-      res.json({ message: "Work submitted successfully", filePath });
+  db.get('SELECT id, writer_id, title FROM orders WHERE id = ?', [orderId], (loadErr, order) => {
+    if (loadErr) return res.status(500).json({ message: 'Server error' });
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (req.user.role !== 'admin' && toInt(req.user.id) !== toInt(order.writer_id)) {
+      return res.status(403).json({ message: 'You are not allowed to submit work for this order' });
     }
-  );
+
+    db.run(
+      "UPDATE orders SET submission_file = ?, status = 'Submitted' WHERE id = ?",
+      [filePath, orderId],
+      function (err) {
+        if (err) return res.status(500).json({ message: "Failed to submit work" });
+        try { logActivity({ actorId: toInt(req.user && req.user.id), userId: toInt(order.writer_id), type: 'order.submitted', message: 'Work uploaded for order', orderId, ip: getClientIp(req) }); } catch (e) {}
+        notifyAdmins({
+          actorUserId: req.user && req.user.id,
+          orderId,
+          type: 'order.submitted.admin',
+          title: 'Writer submitted work',
+          message: `Order #${orderId} (${order.title || 'Untitled'}) has been submitted by the writer.`
+        });
+        // Attempt to generate a PDF preview for non-PDF uploads (so client can read without .docx)
+        (async () => {
+          try {
+            const localFile = path.join(uploadDir, safeFilename);
+            const ext = path.extname(safeFilename).toLowerCase();
+            const previewTarget = path.join(previewDir, `${orderId}.pdf`);
+
+            // If upload already a PDF, copy to previews as orderId.pdf
+            if (ext === '.pdf') {
+              fs.copyFileSync(localFile, previewTarget);
+              console.log('✅ PDF preview saved for order', orderId);
+            } else if (['.doc', '.docx', '.odt', '.rtf', '.ppt', '.pptx'].includes(ext)) {
+              const cmd = `soffice --headless --convert-to pdf --outdir "${previewDir}" "${localFile}"`;
+              exec(cmd, (convErr) => {
+                if (convErr) {
+                  console.error('❌ PDF conversion failed:', convErr.message);
+                  return;
+                }
+                const base = path.basename(req.file.filename, ext);
+                const produced = path.join(previewDir, `${base}.pdf`);
+                if (fs.existsSync(produced)) {
+                  try {
+                    fs.renameSync(produced, previewTarget);
+                    console.log('✅ Converted and saved preview for order', orderId);
+                  } catch (renameErr) {
+                    console.error('❌ Failed to rename produced pdf:', renameErr.message);
+                  }
+                } else {
+                  console.error('❌ Expected produced PDF not found:', produced);
+                }
+              });
+            } else {
+              console.log('ℹ️ Uploaded file type not converted to PDF:', ext);
+            }
+          } catch (e) {
+            console.error('❌ Error while generating preview:', e.message || e);
+          }
+        })();
+
+        res.json({ message: "Work submitted successfully", filePath });
+      }
+    );
+  });
 });
 
 // Admin sends submitted work to client
@@ -613,15 +761,31 @@ app.post("/api/send-to-client/:orderId", authMiddleware, requireAdmin, (req, res
   const orderId = toInt(req.params && req.params.orderId);
   if (orderId === null) return res.status(400).json({ message: 'Invalid order id' });
 
-  db.run(
-    "UPDATE orders SET status = 'Delivered to Client' WHERE id = ?",
-    [orderId],
-    (err2) => {
-      if (err2) return res.status(500).json({ message: "Failed to deliver work" });
-      try { logActivity({ actorId: req.user && req.user.id, type: 'order.delivered', message: 'Delivered work to client', orderId, ip: getClientIp(req) }); } catch (e) {}
-      res.json({ message: "Work delivered to client successfully" });
-    }
-  );
+  db.get('SELECT id, writer_id, title, submission_file FROM orders WHERE id = ?', [orderId], (loadErr, order) => {
+    if (loadErr) return res.status(500).json({ message: 'Server error' });
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (!order.submission_file) return res.status(400).json({ message: 'No submitted work found for this order' });
+
+    db.run(
+      "UPDATE orders SET status = 'Delivered to Client' WHERE id = ?",
+      [orderId],
+      (err2) => {
+        if (err2) return res.status(500).json({ message: "Failed to deliver work" });
+        try { logActivity({ actorId: req.user && req.user.id, userId: toInt(order.writer_id), type: 'order.delivered', message: 'Delivered work to client', orderId, ip: getClientIp(req) }); } catch (e) {}
+        if (toInt(order.writer_id) !== null) {
+          createNotification({
+            recipientUserId: order.writer_id,
+            actorUserId: req.user && req.user.id,
+            orderId,
+            type: 'order.delivered.writer',
+            title: 'Work sent to client',
+            message: `Admin sent order #${orderId} (${order.title || 'Untitled'}) to the client.`
+          });
+        }
+        res.json({ message: "Work delivered to client successfully" });
+      }
+    );
+  });
 });
 
 // List pending (unapproved) users - admin only
@@ -693,33 +857,74 @@ app.get('/api/submission/:orderId', (req, res) => {
   const orderId = toInt(req.params && req.params.orderId);
   const requesterId = toInt(req.query && req.query.userId);
   if (orderId === null) return res.status(400).json({ message: 'Invalid order id' });
-  db.get('SELECT submission_file, client_id, writer_id, status FROM orders WHERE id = ?', [orderId], (err, order) => {
+  db.get('SELECT submission_file, client_id, writer_id, status, payment_status, amount FROM orders WHERE id = ?', [orderId], (err, order) => {
     if (err) return res.status(500).json({ message: 'Server error' });
     if (!order) return res.status(404).json({ message: 'Order not found' });
     if (!order.submission_file) return res.status(404).json({ message: 'No submission available' });
     // Determine requester (may be provided via token in future)
     const authUser = getUserFromRequest(req);
+    const rawToken = getRawTokenFromRequest(req);
     const reqId = authUser ? toInt(authUser.id) : requesterId;
+    const previewUrl = rawToken
+      ? `/api/preview-view/${orderId}?userToken=${encodeURIComponent(rawToken)}`
+      : `/api/preview-view/${orderId}?userId=${reqId}`;
+    const downloadUrl = rawToken
+      ? `/api/download/${orderId}?userToken=${encodeURIComponent(rawToken)}`
+      : `/api/download/${orderId}?userId=${reqId}`;
     // Writers and admins get direct access
     if (authUser && (authUser.role === 'admin' || toInt(authUser.id) === order.writer_id)) {
-      const filename = path.basename(order.submission_file);
-      return res.json({ submission_file: order.submission_file, url: `/uploads/${filename}`, requesterId: reqId });
+      return res.json({ submission_file: order.submission_file, previewUrl, url: downloadUrl, requesterId: reqId, status: order.status, payment_status: order.payment_status, amount: order.amount });
     }
 
-    // Clients: only return direct download URL if the order has been paid for
+    // Clients: always allow protected preview, but direct open/download only after payment
     if (reqId && reqId === toInt(order.client_id)) {
-      // fetch payment_status
-      db.get('SELECT payment_status FROM orders WHERE id = ?', [orderId], (pErr, prow) => {
-        if (pErr) return res.status(500).json({ message: 'Server error' });
-        const paid = prow && String(prow.payment_status).toLowerCase() === 'paid';
-        if (!paid) return res.status(403).json({ message: 'Download blocked until payment is completed' });
-        const filename = path.basename(order.submission_file);
-        return res.json({ submission_file: order.submission_file, url: `/uploads/${filename}`, requesterId: reqId });
+      const paid = order.payment_status && String(order.payment_status).toLowerCase() === 'paid';
+      return res.json({
+        submission_file: order.submission_file,
+        previewUrl,
+        url: paid ? downloadUrl : previewUrl,
+        requesterId: reqId,
+        status: order.status,
+        payment_status: order.payment_status,
+        amount: order.amount
       });
-      return;
     }
 
     return res.status(403).json({ message: 'Access denied' });
+  });
+});
+
+app.get('/api/download/:orderId', (req, res) => {
+  const orderId = toInt(req.params && req.params.orderId);
+  const authUser = getUserFromRequest(req);
+  const requesterId = authUser ? toInt(authUser.id) : toInt(req.query && req.query.userId);
+  if (orderId === null) return res.status(400).json({ message: 'Invalid order id' });
+  if (!requesterId) return res.status(403).json({ message: 'Access denied' });
+
+  db.get('SELECT submission_file, client_id, writer_id, payment_status FROM orders WHERE id = ?', [orderId], (err, order) => {
+    if (err) return res.status(500).json({ message: 'Server error' });
+    if (!order || !order.submission_file) return res.status(404).json({ message: 'Submission not found' });
+
+    db.get('SELECT id, role FROM users WHERE id = ?', [requesterId], (err2, user) => {
+      if (err2) return res.status(500).json({ message: 'Server error' });
+      if (!user) return res.status(403).json({ message: 'Access denied' });
+
+      const filename = path.basename(order.submission_file);
+      const filePath = path.join(uploadDir, filename);
+      if (!fs.existsSync(filePath)) return res.status(404).json({ message: 'File not found' });
+
+      if (user.role === 'admin' || user.id === order.writer_id) {
+        return res.sendFile(filePath);
+      }
+
+      if (user.id === order.client_id) {
+        const paid = order.payment_status && String(order.payment_status).toLowerCase() === 'paid';
+        if (!paid) return res.status(403).json({ message: 'Download blocked until payment is completed' });
+        return res.sendFile(filePath);
+      }
+
+      return res.status(403).json({ message: 'Access denied' });
+    });
   });
 });
 
@@ -769,7 +974,7 @@ app.get('/api/preview/:orderId', (req, res) => {
   if (orderId === null) return res.status(400).json({ message: 'Invalid order id' });
   if (!requesterId) return res.status(403).json({ message: 'Access denied' });
 
-  db.get('SELECT submission_file, client_id, writer_id, status FROM orders WHERE id = ?', [orderId], (err, order) => {
+  db.get('SELECT submission_file, client_id, writer_id, status, payment_status FROM orders WHERE id = ?', [orderId], (err, order) => {
     if (err) return res.status(500).json({ message: 'Server error' });
     if (!order || !order.submission_file) return res.status(404).json({ message: 'Submission not found' });
 
@@ -1163,6 +1368,53 @@ app.get('/api/orders/:id/payment-status', (req, res) => {
     if (err) return res.status(500).json({ message: 'Server error' });
     if (!row) return res.status(404).json({ message: 'Order not found' });
     res.json(row);
+  });
+});
+
+app.get('/api/notifications', authMiddleware, (req, res) => {
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
+  const unreadOnly = String(req.query.unreadOnly || '').toLowerCase() === 'true';
+  const userId = toInt(req.user && req.user.id);
+  if (userId === null) return res.status(400).json({ message: 'Invalid user' });
+  const where = ['n.recipient_user_id = ?'];
+  const params = [userId];
+  if (unreadOnly) where.push('n.is_read = 0');
+
+  db.all(
+    `SELECT n.*, u.name AS actor_name
+     FROM notifications n
+     LEFT JOIN users u ON u.id = n.actor_user_id
+     WHERE ${where.join(' AND ')}
+     ORDER BY n.is_read ASC, n.created_at DESC, n.id DESC
+     LIMIT ?`,
+    [...params, limit],
+    (err, rows) => {
+      if (err) return res.status(500).json({ message: 'Failed to fetch notifications' });
+      db.get('SELECT COUNT(*) AS count FROM notifications WHERE recipient_user_id = ? AND is_read = 0', [userId], (countErr, countRow) => {
+        if (countErr) return res.status(500).json({ message: 'Failed to count notifications' });
+        res.json({ notifications: rows || [], unreadCount: Number((countRow && countRow.count) || 0) });
+      });
+    }
+  );
+});
+
+app.post('/api/notifications/:id/read', authMiddleware, (req, res) => {
+  const id = toInt(req.params && req.params.id);
+  const userId = toInt(req.user && req.user.id);
+  if (id === null || userId === null) return res.status(400).json({ message: 'Invalid notification id' });
+  db.run('UPDATE notifications SET is_read = 1 WHERE id = ? AND recipient_user_id = ?', [id, userId], function (err) {
+    if (err) return res.status(500).json({ message: 'Failed to update notification' });
+    if (!this.changes) return res.status(404).json({ message: 'Notification not found' });
+    res.json({ message: 'Notification marked as read' });
+  });
+});
+
+app.post('/api/notifications/read-all', authMiddleware, (req, res) => {
+  const userId = toInt(req.user && req.user.id);
+  if (userId === null) return res.status(400).json({ message: 'Invalid user' });
+  db.run('UPDATE notifications SET is_read = 1 WHERE recipient_user_id = ? AND is_read = 0', [userId], function (err) {
+    if (err) return res.status(500).json({ message: 'Failed to update notifications' });
+    res.json({ message: 'Notifications marked as read', updated: this.changes || 0 });
   });
 });
 

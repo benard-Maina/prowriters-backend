@@ -219,6 +219,50 @@
 
     .success { background: #28a745; }
     .error { background: #dc3545; }
+    .notification-panel {
+      margin-top: 20px;
+      border: 1px solid #d8e2f0;
+      border-radius: 10px;
+      background: #f8fbff;
+      padding: 12px;
+    }
+    .notification-toolbar {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      flex-wrap:wrap;
+      margin-bottom:8px;
+    }
+    .notification-badge {
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:22px;
+      height:22px;
+      padding:0 8px;
+      border-radius:999px;
+      background:#dc3545;
+      color:#fff;
+      font-size:12px;
+      font-weight:700;
+    }
+    .notification-list { display:grid; gap:8px; }
+    .notification-item {
+      border:1px solid #d8e2f0;
+      border-left:4px solid #adb5bd;
+      background:#fff;
+      border-radius:8px;
+      padding:10px;
+      cursor:pointer;
+    }
+    .notification-item.unread {
+      border-left-color:#007bff;
+      background:#f3f8ff;
+    }
+    .notification-title { font-weight:700; margin-bottom:4px; }
+    .notification-meta { color:#6b7280; font-size:12px; }
+    .notification-empty { color:gray; text-align:center; padding:8px; }
   </style>
 </head>
 <body>
@@ -233,6 +277,17 @@
     </div>
     <h1>Writer Dashboard</h1>
     <p id="welcome"></p>
+
+    <section class="notification-panel">
+      <div class="notification-toolbar">
+        <h2 style="margin:0;border:none;padding:0;display:flex;align-items:center;gap:8px;">Notifications <span id="notificationBadge" class="notification-badge">0</span></h2>
+        <div style="display:flex;gap:8px;">
+          <button id="refreshNotifications" type="button">Refresh</button>
+          <button id="markAllRead" type="button">Mark all read</button>
+        </div>
+      </div>
+      <div id="notificationList" class="notification-list"></div>
+    </section>
 
     <!-- 🧾 AVAILABLE JOBS -->
     <section id="pendingJobs">
@@ -272,10 +327,14 @@
     // ✅ Authentication check
     function apiBase() {
       try {
+        const protocol = window.location && window.location.protocol;
         const host = window.location && window.location.hostname;
+        const origin = window.location && window.location.origin;
+        if (protocol === 'file:') return 'http://localhost:3000';
         if (host && host.endsWith('prowriter.me')) return 'https://api.prowriter.me';
-        return window.location && window.location.origin ? window.location.origin : 'https://api.prowriter.me';
-      } catch (e) { return 'https://api.prowriter.me'; }
+        if (origin && origin !== 'null' && /^https?:\/\//i.test(origin)) return origin;
+        return 'http://localhost:3000';
+      } catch (e) { return 'http://localhost:3000'; }
     }
     const apiUrl = (path) => `${apiBase()}${path}`;
     const storedToken = localStorage.getItem('token');
@@ -284,6 +343,87 @@
       options.headers = options.headers || {};
       if (storedToken) options.headers['Authorization'] = `Bearer ${storedToken}`;
       return fetch(apiUrl(path), options);
+    }
+
+    function resolveApiUrl(resource) {
+      if (!resource) return null;
+      if (/^https?:\/\//i.test(resource)) return resource;
+      return resource.startsWith('/') ? `${apiBase()}${resource}` : `${apiBase()}/${resource}`;
+    }
+
+    async function openSubmission(orderId) {
+      try {
+        const res = await fetchApi(`/api/submission/${orderId}`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          alert(data.message || 'Unable to open submission');
+          return;
+        }
+        const target = resolveApiUrl(data.previewUrl || data.url || data.submission_file);
+        if (!target) {
+          alert('Submission not available');
+          return;
+        }
+        window.open(target, '_blank', 'noopener');
+      } catch (error) {
+        alert(`Unable to open submission: ${error.message || error}`);
+      }
+    }
+
+    function escapeHtml(text) {
+      return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    async function loadNotifications() {
+      try {
+        const res = await fetchApi('/api/notifications?limit=20');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'Failed to load notifications');
+        const rows = Array.isArray(data.notifications) ? data.notifications : [];
+        const badge = document.getElementById('notificationBadge');
+        const list = document.getElementById('notificationList');
+        if (badge) badge.textContent = String(Number(data.unreadCount || 0));
+        if (!list) return;
+        if (!rows.length) {
+          list.innerHTML = '<div class="notification-empty">No notifications yet.</div>';
+          return;
+        }
+        list.innerHTML = rows.map(n => `
+          <div class="notification-item ${Number(n.is_read) ? '' : 'unread'}" data-id="${n.id}">
+            <div class="notification-title">${escapeHtml(n.title)}</div>
+            <div>${escapeHtml(n.message)}</div>
+            <div class="notification-meta">${escapeHtml(n.created_at || '')}${n.actor_name ? ` • ${escapeHtml(n.actor_name)}` : ''}${n.order_id ? ` • Order #${n.order_id}` : ''}</div>
+          </div>
+        `).join('');
+        list.querySelectorAll('.notification-item').forEach(item => {
+          item.addEventListener('click', async () => {
+            const id = item.getAttribute('data-id');
+            try {
+              await fetchApi(`/api/notifications/${id}/read`, { method: 'POST' });
+            } catch (e) {}
+            loadNotifications();
+          });
+        });
+      } catch (err) {
+        const list = document.getElementById('notificationList');
+        if (list) list.innerHTML = `<div class="notification-empty">${escapeHtml(err.message || 'Failed to load notifications')}</div>`;
+      }
+    }
+
+    async function markAllNotificationsRead() {
+      try {
+        const res = await fetchApi('/api/notifications/read-all', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'Failed to update notifications');
+        loadNotifications();
+      } catch (err) {
+        alert(err.message || 'Failed to update notifications');
+      }
     }
 
     if (!user) {
@@ -300,6 +440,7 @@
       }
     } else {
       welcome.textContent = `Welcome, ${user.name}`;
+      loadNotifications();
       loadAvailableJobs();
       loadOrders();
     }
@@ -358,6 +499,11 @@
       profileDropdown.style.display = 'none';
       openDetailsModal();
     });
+
+    document.getElementById('refreshNotifications').addEventListener('click', loadNotifications);
+    document.getElementById('markAllRead').addEventListener('click', markAllNotificationsRead);
+    const notificationTimer = setInterval(loadNotifications, 15000);
+    window.addEventListener('beforeunload', () => clearInterval(notificationTimer));
 
     // initialize initials
     setProfileInitials();
@@ -481,7 +627,7 @@
             </td>
             <td>
               ${order.submission_file
-                ? `<a href="${order.submission_file}" target="_blank">View</a>`
+                ? `<button type="button" onclick="openSubmission(${order.id})">View</button>`
                 : "Not submitted"}
             </td>
           `;

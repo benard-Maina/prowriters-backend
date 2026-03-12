@@ -42,3 +42,17 @@ Invoke-RestMethod -Uri https://api.prowriter.me/api/approve-user/<id> -Method Po
 # login
 Invoke-RestMethod -Uri https://api.prowriter.me/api/login -Method Post -ContentType 'application/json' -Body (ConvertTo-Json @{email='t@example.com'; password='secret'})
 ```
+
+Admin verification email setup (optional):
+
+- Configure these environment variables on the server:
+  - `SMTP_HOST`
+  - `SMTP_PORT` (for example `587`)
+  - `SMTP_USER`
+  - `SMTP_PASS`
+  - `SMTP_SECURE` (`true` for SSL, otherwise `false`)
+  - `SMTP_FROM` (sender address)
+  - `ADMIN_VERIFICATION_NOTIFY_EMAILS` (comma-separated extra recipients)
+
+- Behavior:
+  - When a new admin registers and is marked pending approval, the server sends a verification/approval email notification to approved admins and extra recipients.
