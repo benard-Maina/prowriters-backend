@@ -330,8 +330,13 @@
         const params = new URLSearchParams(window.location.search || '');
         const override = (params.get('api') || localStorage.getItem('apiBaseOverride') || '').trim();
         if (override && /^https?:\/\//i.test(override)) {
-          localStorage.setItem('apiBaseOverride', override.replace(/\/$/, ''));
-          return override.replace(/\/$/, '');
+          try {
+            const normalized = new URL(override).origin;
+            localStorage.setItem('apiBaseOverride', normalized);
+            return normalized;
+          } catch (e) {
+            localStorage.removeItem('apiBaseOverride');
+          }
         }
         const protocol = window.location && window.location.protocol;
         const host = window.location && window.location.hostname;
