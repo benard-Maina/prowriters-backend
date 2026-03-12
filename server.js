@@ -372,6 +372,28 @@ app.get("/", (_, res) => {
 });
 app.get('/api/ping', (_, res) => res.json({ message: 'pong' }));
 
+app.get('/api/db-status', async (_, res) => {
+  try {
+    const usersRow = await dbGetAsync('SELECT COUNT(*) AS count FROM users');
+    const ordersRow = await dbGetAsync('SELECT COUNT(*) AS count FROM orders');
+    const activityRow = await dbGetAsync('SELECT COUNT(*) AS count FROM activity_logs');
+    const notificationsRow = await dbGetAsync('SELECT COUNT(*) AS count FROM notifications');
+    return res.json({
+      ok: true,
+      dbPath: DB_PATH,
+      counts: {
+        users: Number((usersRow && usersRow.count) || 0),
+        orders: Number((ordersRow && ordersRow.count) || 0),
+        activity_logs: Number((activityRow && activityRow.count) || 0),
+        notifications: Number((notificationsRow && notificationsRow.count) || 0)
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    return res.status(500).json({ ok: false, message: 'Failed to read database status' });
+  }
+});
+
 // Public configuration endpoint (safe to expose non-sensitive settings)
 app.get('/api/config', (req, res) => {
   try {
