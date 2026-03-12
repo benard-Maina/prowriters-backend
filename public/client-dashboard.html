@@ -264,7 +264,11 @@
           return override.replace(/\/$/, '');
         }
         const protocol = window.location && window.location.protocol;
+        const host = window.location && window.location.hostname;
         const origin = window.location && window.location.origin;
+        if (host && (host === 'prowriter.me' || host === 'www.prowriter.me' || host.endsWith('.prowriter.me'))) {
+          return 'https://api.prowriter.me';
+        }
         if (origin && origin !== 'null' && /^https?:\/\//i.test(origin)) return origin;
         if (protocol === 'file:') return 'http://localhost:3000';
         return 'http://localhost:3000';
