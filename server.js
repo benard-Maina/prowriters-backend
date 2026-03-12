@@ -580,6 +580,23 @@ app.get("/api/assigned-orders/:writer_id", (req, res) => {
   );
 });
 
+// Fetch assigned jobs for currently logged in writer
+app.get('/api/assigned-orders', authMiddleware, (req, res) => {
+  if (!req.user || req.user.role !== 'writer') {
+    return res.status(403).json({ message: 'Writer privileges required' });
+  }
+  const writerId = toInt(req.user.id);
+  if (writerId === null) return res.status(400).json({ message: 'Invalid writer id' });
+  db.all(
+    `SELECT * FROM orders WHERE writer_id = ? ORDER BY created_at DESC`,
+    [writerId],
+    (err, rows) => {
+      if (err) return res.status(500).json({ message: 'Failed to fetch assigned orders' });
+      res.json(rows);
+    }
+  );
+});
+
 // Assign job to writer
 // Assign job to writer (admin-only)
 app.post("/api/assign", authMiddleware, requireAdmin, (req, res) => {

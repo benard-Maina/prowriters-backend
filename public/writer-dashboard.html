@@ -327,12 +327,16 @@
     // ✅ Authentication check
     function apiBase() {
       try {
+        const params = new URLSearchParams(window.location.search || '');
+        const override = (params.get('api') || localStorage.getItem('apiBaseOverride') || '').trim();
+        if (override && /^https?:\/\//i.test(override)) {
+          localStorage.setItem('apiBaseOverride', override.replace(/\/$/, ''));
+          return override.replace(/\/$/, '');
+        }
         const protocol = window.location && window.location.protocol;
-        const host = window.location && window.location.hostname;
         const origin = window.location && window.location.origin;
-        if (protocol === 'file:') return 'http://localhost:3000';
-        if (host && host.endsWith('prowriter.me')) return 'https://api.prowriter.me';
         if (origin && origin !== 'null' && /^https?:\/\//i.test(origin)) return origin;
+        if (protocol === 'file:') return 'http://localhost:3000';
         return 'http://localhost:3000';
       } catch (e) { return 'http://localhost:3000'; }
     }
@@ -601,9 +605,16 @@
     async function loadOrders() {
       tbody.innerHTML = `<tr><td colspan="6">Loading your assigned orders...</td></tr>`;
       try {
-        const res = await fetchApi(`/api/assigned-orders/${user.id}`);
+        const res = await fetchApi('/api/assigned-orders');
         let myOrders = [];
-        try { myOrders = await res.json(); } catch (e) { console.error('Failed to parse /api/assigned-orders', e); }
+        let payload = null;
+        try { payload = await res.json(); } catch (e) { console.error('Failed to parse /api/assigned-orders', e); }
+        if (!res.ok) {
+          const msg = (payload && payload.message) || `Failed to load assigned orders (${res.status})`;
+          tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#c62828;">${escapeHtml(msg)}</td></tr>`;
+          return;
+        }
+        myOrders = Array.isArray(payload) ? payload : [];
         tbody.innerHTML = "";
 
         if (myOrders.length === 0) {

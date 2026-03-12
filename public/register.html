@@ -180,12 +180,16 @@
       try {
         function apiBase() {
           try {
+            const params = new URLSearchParams(window.location.search || '');
+            const override = (params.get('api') || localStorage.getItem('apiBaseOverride') || '').trim();
+            if (override && /^https?:\/\//i.test(override)) {
+              localStorage.setItem('apiBaseOverride', override.replace(/\/$/, ''));
+              return override.replace(/\/$/, '');
+            }
             const protocol = window.location && window.location.protocol;
-            const host = window.location && window.location.hostname;
             const origin = window.location && window.location.origin;
-            if (protocol === 'file:') return 'http://localhost:3000';
-            if (host && host.endsWith('prowriter.me')) return 'https://api.prowriter.me';
             if (origin && origin !== 'null' && /^https?:\/\//i.test(origin)) return origin;
+            if (protocol === 'file:') return 'http://localhost:3000';
             return 'http://localhost:3000';
           } catch (e) { return 'http://localhost:3000'; }
         }
