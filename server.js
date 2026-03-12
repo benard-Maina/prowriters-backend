@@ -85,14 +85,43 @@ const previewDir = path.join(uploadDir, 'previews');
 if (!fs.existsSync(previewDir)) fs.mkdirSync(previewDir, { recursive: true });
 
 // ===== DATABASE =====
-const DB_PATH = path.join(__dirname, "prowriter.db");
+const DB_PATH = process.env.DB_PATH
+  ? path.resolve(process.env.DB_PATH)
+  : path.join(__dirname, "prowriter.db");
 const db = new sqlite3.Database(DB_PATH, (err) => {
   if (err) {
     console.error("❌ Database connection error:", err.message);
     process.exit(1);
   }
-  console.log("✅ Connected to SQLite database.");
+  console.log(`✅ Connected to SQLite database at ${DB_PATH}`);
 });
+
+function dbRunAsync(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function onRun(error) {
+      if (error) return reject(error);
+      return resolve({ lastID: this.lastID, changes: this.changes });
+    });
+  });
+}
+
+function dbGetAsync(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.get(sql, params, (error, row) => {
+      if (error) return reject(error);
+      return resolve(row || null);
+    });
+  });
+}
+
+function dbAllAsync(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.all(sql, params, (error, rows) => {
+      if (error) return reject(error);
+      return resolve(rows || []);
+    });
+  });
+}
 
 // Enable foreign keys
 db.run("PRAGMA foreign_keys = ON");
@@ -339,7 +368,7 @@ function generateCode() {
 
 // ===== ROOT & HEALTH =====
 app.get("/", (_, res) => {
-  res.send("✅ ProWriter Solutions backend running successfully!");
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 app.get('/api/ping', (_, res) => res.json({ message: 'pong' }));
 
@@ -396,53 +425,40 @@ app.post("/api/register", async (req, res) => {
       }
     }
 
-    // check existing
-    db.get("SELECT id FROM users WHERE email = ?", [emailLower], (err, row) => {
-      if (err) return res.status(500).json({ message: "Server error" });
-      if (row) return res.status(409).json({ message: "Email already registered" });
+    const existing = await dbGetAsync("SELECT id FROM users WHERE email = ?", [emailLower]);
+    if (existing) return res.status(409).json({ message: "Email already registered" });
 
-      // helper to perform the insert
-      function proceedInsert() {
-        // hash password
-        const hashed = bcrypt.hashSync(password, 10);
-
-        // create user and mark approved according to role handling
-        db.run(
-          `INSERT INTO users (name, email, password, role, country, approved)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [name, emailLower, hashed, userRole, country, approvedFlag],
-          function (insertErr) {
-            if (insertErr) return res.status(500).json({ message: "Registration failed" });
-            // Log activity
-            try {
-              if (userRole === 'admin' && approvedFlag === 0) {
-                logActivity({ userId: this.lastID, type: 'user.register_admin_pending', message: 'Admin registration pending approval', ip: getClientIp(req) });
-                sendAdminVerificationRequestEmail({ userId: this.lastID, name, email: emailLower, country });
-              } else {
-                logActivity({ userId: this.lastID, type: 'user.register', message: 'User registered', ip: getClientIp(req) });
-              }
-            } catch(e){}
-
-            if (userRole === 'admin' && approvedFlag === 0) {
-              return res.json({ message: 'Registered successfully. Admin account is pending approval by an administrator.' });
-            }
-            return res.json({ message: 'Registered successfully. You may now log in.' });
-          }
-        );
+    if (userRole === 'admin') {
+      const cntRow = await dbGetAsync("SELECT COUNT(*) as cnt FROM users WHERE role = 'admin'");
+      const current = cntRow && (cntRow.cnt || cntRow.COUNT || cntRow.count)
+        ? Number(cntRow.cnt || cntRow.COUNT || cntRow.count)
+        : 0;
+      if (current >= 3) {
+        return res.status(403).json({ message: 'Admin limit reached (maximum 3 admins allowed)' });
       }
+    }
 
-      // If creating an admin, enforce a maximum of 3 admins
-      if (userRole === 'admin') {
-        db.get("SELECT COUNT(*) as cnt FROM users WHERE role = 'admin'", (cntErr, cntRow) => {
-          if (cntErr) return res.status(500).json({ message: 'Server error' });
-          const current = cntRow && (cntRow.cnt || cntRow.COUNT || cntRow.count) ? Number(cntRow.cnt || cntRow.COUNT || cntRow.count) : 0;
-          if (current >= 3) return res.status(403).json({ message: 'Admin limit reached (maximum 3 admins allowed)' });
-          proceedInsert();
-        });
+    const hashed = bcrypt.hashSync(password, 10);
+    const insertResult = await dbRunAsync(
+      `INSERT INTO users (name, email, password, role, country, approved)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [name, emailLower, hashed, userRole, country, approvedFlag]
+    );
+    const newUserId = insertResult.lastID;
+
+    try {
+      if (userRole === 'admin' && approvedFlag === 0) {
+        logActivity({ userId: newUserId, type: 'user.register_admin_pending', message: 'Admin registration pending approval', ip: getClientIp(req) });
+        sendAdminVerificationRequestEmail({ userId: newUserId, name, email: emailLower, country });
       } else {
-        proceedInsert();
+        logActivity({ userId: newUserId, type: 'user.register', message: 'User registered', ip: getClientIp(req) });
       }
-    });
+    } catch (e) {}
+
+    if (userRole === 'admin' && approvedFlag === 0) {
+      return res.json({ message: 'Registered successfully. Admin account is pending approval by an administrator.' });
+    }
+    return res.json({ message: 'Registered successfully. You may now log in.' });
   } catch (err) {
     console.error('Register error:', err);
     res.status(500).json({ message: 'Server error' });
@@ -456,39 +472,33 @@ app.post("/api/register", async (req, res) => {
 // Email verification endpoint removed (verification disabled)
 
 // Login: only allow approved users
-app.post("/api/login", (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) return res.status(400).json({ message: 'Missing credentials' });
+app.post("/api/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ message: 'Missing credentials' });
 
-  const emailLower = String(email).trim().toLowerCase();
-  db.get(
-    "SELECT * FROM users WHERE email = ?",
-    [emailLower],
-    (err, user) => {
-      if (err) return res.status(500).json({ message: "Server error" });
-      if (!user) {
-        try { logActivity({ type: 'user.login_failed', message: `Failed login for ${emailLower}`, meta: { email: emailLower }, ip: getClientIp(req) }); } catch (e) {}
-        return res.status(401).json({ message: "Invalid account" });
-      }
-      // Allow login regardless of `approved` flag to simplify onboarding.
-      // Previously blocking unapproved users caused friction; registration
-      // already marks users approved by default in this app.
-
-      // compare hashed password
-      const match = bcrypt.compareSync(password, user.password);
-      if (!match) {
-        try { logActivity({ userId: user.id, type: 'user.login_failed', message: 'Invalid password', meta: { email: emailLower }, ip: getClientIp(req) }); } catch (e) {}
-        return res.status(401).json({ message: "Invalid account" });
-      }
-
-      // remove password before sending user object and issue JWT
-      delete user.password;
-      const payload = { id: user.id, role: user.role, email: user.email };
-      const token = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES });
-      try { logActivity({ userId: user.id, actorId: user.id, type: 'user.login', message: 'User logged in', ip: getClientIp(req) }); } catch (e) {}
-      res.json({ user, token });
+    const emailLower = String(email).trim().toLowerCase();
+    const user = await dbGetAsync("SELECT * FROM users WHERE email = ?", [emailLower]);
+    if (!user) {
+      try { logActivity({ type: 'user.login_failed', message: `Failed login for ${emailLower}`, meta: { email: emailLower }, ip: getClientIp(req) }); } catch (e) {}
+      return res.status(401).json({ message: "Invalid account" });
     }
-  );
+
+    const match = bcrypt.compareSync(password, user.password);
+    if (!match) {
+      try { logActivity({ userId: user.id, type: 'user.login_failed', message: 'Invalid password', meta: { email: emailLower }, ip: getClientIp(req) }); } catch (e) {}
+      return res.status(401).json({ message: "Invalid account" });
+    }
+
+    delete user.password;
+    const payload = { id: user.id, role: user.role, email: user.email };
+    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES });
+    try { logActivity({ userId: user.id, actorId: user.id, type: 'user.login', message: 'User logged in', ip: getClientIp(req) }); } catch (e) {}
+    return res.json({ user, token });
+  } catch (error) {
+    console.error('Login error:', error);
+    return res.status(500).json({ message: 'Server error' });
+  }
 });
 
 // ==========================
@@ -567,34 +577,30 @@ app.get("/api/unassigned-orders", (_, res) => {
 });
 
 // Fetch assigned jobs for a specific writer
-app.get("/api/assigned-orders/:writer_id", (req, res) => {
-  const writerId = toInt(req.params.writer_id);
-  if (writerId === null) return res.status(400).json({ message: 'Invalid writer id' });
-  db.all(
-    `SELECT * FROM orders WHERE writer_id = ? ORDER BY created_at DESC`,
-    [writerId],
-    (err, rows) => {
-      if (err) return res.status(500).json({ message: "Failed to fetch assigned orders" });
-      res.json(rows);
-    }
-  );
+app.get("/api/assigned-orders/:writer_id", async (req, res) => {
+  try {
+    const writerId = toInt(req.params.writer_id);
+    if (writerId === null) return res.status(400).json({ message: 'Invalid writer id' });
+    const rows = await dbAllAsync(`SELECT * FROM orders WHERE writer_id = ? ORDER BY created_at DESC`, [writerId]);
+    return res.json(rows);
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch assigned orders" });
+  }
 });
 
 // Fetch assigned jobs for currently logged in writer
-app.get('/api/assigned-orders', authMiddleware, (req, res) => {
-  if (!req.user || req.user.role !== 'writer') {
-    return res.status(403).json({ message: 'Writer privileges required' });
-  }
-  const writerId = toInt(req.user.id);
-  if (writerId === null) return res.status(400).json({ message: 'Invalid writer id' });
-  db.all(
-    `SELECT * FROM orders WHERE writer_id = ? ORDER BY created_at DESC`,
-    [writerId],
-    (err, rows) => {
-      if (err) return res.status(500).json({ message: 'Failed to fetch assigned orders' });
-      res.json(rows);
+app.get('/api/assigned-orders', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user || req.user.role !== 'writer') {
+      return res.status(403).json({ message: 'Writer privileges required' });
     }
-  );
+    const writerId = toInt(req.user.id);
+    if (writerId === null) return res.status(400).json({ message: 'Invalid writer id' });
+    const rows = await dbAllAsync(`SELECT * FROM orders WHERE writer_id = ? ORDER BY created_at DESC`, [writerId]);
+    return res.json(rows);
+  } catch (error) {
+    return res.status(500).json({ message: 'Failed to fetch assigned orders' });
+  }
 });
 
 // Assign job to writer

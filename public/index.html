@@ -28,6 +28,26 @@
       scroll-behavior: smooth;
     }
 
+    .site-logo-link {
+      position: fixed;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10000;
+      display: block;
+    }
+
+    .site-logo {
+      width: 56px;
+      height: 56px;
+      object-fit: contain;
+      border-radius: 8px;
+      background: #fff;
+      padding: 6px;
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+      display: block;
+    }
+
     /* ===== HEADER ===== */
     header {
       background: var(--primary);
@@ -342,6 +362,18 @@
     }
       .section {
         padding: 60px 20px;
+      }
+
+      .site-logo-link {
+        top: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+      }
+
+      .site-logo {
+        width: 48px;
+        height: 48px;
+        padding: 4px;
       }
 
       .services {

@@ -116,8 +116,8 @@ iframe, video {
 /* Improve hero/background handling on very small screens if present */
 .hero { background-size: cover; background-position: center; }
 
-/* Site logo (fixed top-left) */
-.site-logo-link { position: fixed; top: 12px; left: 12px; z-index: 9999; display: block; }
+/* Site logo (fixed top-center) */
+.site-logo-link { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 9999; display: block; }
 .site-logo {
   width: 56px;
   height: 56px;
@@ -129,7 +129,7 @@ iframe, video {
   display: block;
 }
 @media (max-width: 480px) {
-  .site-logo-link { top: 8px; left: 8px; }
+  .site-logo-link { top: 8px; left: 50%; transform: translateX(-50%); }
   .site-logo { width: 48px; height: 48px; padding: 4px; }
 }
 
