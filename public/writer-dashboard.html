@@ -327,6 +327,12 @@
     // ✅ Authentication check
     function apiBase() {
       try {
+        const host = window.location && window.location.hostname;
+        if (host && (host === 'prowriter.me' || host === 'www.prowriter.me' || host.endsWith('.prowriter.me'))) {
+          // Prevent stale dev overrides from forcing production pages to call localhost.
+          localStorage.removeItem('apiBaseOverride');
+          return 'https://api.prowriter.me';
+        }
         const params = new URLSearchParams(window.location.search || '');
         const override = (params.get('api') || localStorage.getItem('apiBaseOverride') || '').trim();
         if (override && /^https?:\/\//i.test(override)) {
@@ -339,11 +345,7 @@
           }
         }
         const protocol = window.location && window.location.protocol;
-        const host = window.location && window.location.hostname;
         const origin = window.location && window.location.origin;
-        if (host && (host === 'prowriter.me' || host === 'www.prowriter.me' || host.endsWith('.prowriter.me'))) {
-          return 'https://api.prowriter.me';
-        }
         if (origin && origin !== 'null' && /^https?:\/\//i.test(origin)) return origin;
         if (protocol === 'file:') return 'http://localhost:3000';
         return 'http://localhost:3000';
